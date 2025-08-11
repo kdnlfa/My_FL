@@ -1,0 +1,87 @@
+{
+  "data_loader": {
+    "batch_size": 64,
+    "drop_last": false,
+    "train_ratio": 0.8,
+    "eval_ratio": 0.1,
+    "test_ratio": 0.1
+  },
+  "trainer": {
+    "_target_": "flsim.trainers.sync_trainer.SyncTrainer",
+    "trainer_config": {
+      "_target_": "flsim.trainers.sync_trainer.SyncTrainerConfig",
+      "epochs": 35,
+      "users_per_round": 2,
+      "eval_epoch_frequency": 5,
+      "do_eval": true,
+      "report_train_metrics_after_aggregation": true,
+      "server": {
+        "_target_": "flsim.servers.sync_servers.SyncServerConfig",
+        "active_user_selector": {
+          "_target_": "flsim.active_user_selectors.simple_user_selector.UniformlyRandomActiveUserSelectorConfig"
+        },
+        "server_optimizer": {
+          "_target_": "flsim.optimizers.server_optimizers.FedAvgWithLROptimizerConfig",
+          "lr": 1.0,
+          "momentum": 0.9
+        }
+      },
+      "client": {
+        "_target_": "flsim.clients.base_client.ClientConfig",
+        "epochs": 3,
+        "optimizer": {
+          "_target_": "flsim.optimizers.local_optimizers.LocalOptimizerAdamConfig",
+          "lr": 0.001,
+          "weight_decay": 0.0
+        }
+      }
+    }
+  },
+  "services": {
+    "1": {
+      "trainer_overrides": {
+        "trainer_config": {
+          "users_per_round": 2,
+          "client": {
+            "optimizer": {
+              "lr": 0.001
+            }
+          }
+        }
+      },
+      "data_loader_overrides": {
+        "batch_size": 64
+      }
+    },
+    "2": {
+      "trainer_overrides": {
+        "trainer_config": {
+          "users_per_round": 2,
+          "client": {
+            "optimizer": {
+              "lr": 0.001
+            }
+          }
+        }
+      },
+      "data_loader_overrides": {
+        "batch_size": 64
+      }
+    },
+    "3": {
+      "trainer_overrides": {
+        "trainer_config": {
+          "users_per_round": 1,
+          "client": {
+            "optimizer": {
+              "lr": 0.001
+            }
+          }
+        }
+      },
+      "data_loader_overrides": {
+        "batch_size": 64
+      }
+    }
+  }
+}

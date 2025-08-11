@@ -1,0 +1,132 @@
+{
+  "system_config": {
+    "description": "Multi-Service Provider Federated Learning Configuration",
+    "version": "1.0.0"
+  },
+  "services": [
+    {
+      "service_id": 1,
+      "name": "Image Classification Service",
+      "client_ids": [1, 2, 3, 4, 5],
+      "model_architecture": {
+        "type": "cnn",
+        "input_channels": 3,
+        "num_classes": 10
+      },
+      "quantization_level": 8,
+      "local_epochs": 1,
+      "learning_rate": 0.01,
+      "users_per_round": 3,
+      "aggregation_strategy": "fedavg"
+    },
+    {
+      "service_id": 2,
+      "name": "Text Classification Service",
+      "client_ids": [6, 7, 8, 9, 10],
+      "model_architecture": {
+        "type": "mlp",
+        "input_dim": 300,
+        "hidden_dim": 128,
+        "num_classes": 5
+      },
+      "quantization_level": 4,
+      "local_epochs": 2,
+      "learning_rate": 0.005,
+      "users_per_round": 2,
+      "aggregation_strategy": "fedavg"
+    }
+  ],
+  "clients": {
+    "1": {
+      "mu_i": 1e-28,
+      "c_ir": 1000,
+      "max_frequency": 1e9,
+      "max_power": 0.1,
+      "channel_gain": 1e-3,
+      "dataset_size": 1000
+    },
+    "2": {
+      "mu_i": 1.2e-28,
+      "c_ir": 1200,
+      "max_frequency": 1.2e9,
+      "max_power": 0.12,
+      "channel_gain": 1.2e-3,
+      "dataset_size": 1200
+    },
+    "3": {
+      "mu_i": 0.8e-28,
+      "c_ir": 800,
+      "max_frequency": 0.8e9,
+      "max_power": 0.08,
+      "channel_gain": 0.8e-3,
+      "dataset_size": 800
+    },
+    "4": {
+      "mu_i": 1.1e-28,
+      "c_ir": 1100,
+      "max_frequency": 1.1e9,
+      "max_power": 0.11,
+      "channel_gain": 1.1e-3,
+      "dataset_size": 1100
+    },
+    "5": {
+      "mu_i": 0.9e-28,
+      "c_ir": 900,
+      "max_frequency": 0.9e9,
+      "max_power": 0.09,
+      "channel_gain": 0.9e-3,
+      "dataset_size": 900
+    },
+    "6": {
+      "mu_i": 1.3e-28,
+      "c_ir": 1300,
+      "max_frequency": 1.3e9,
+      "max_power": 0.13,
+      "channel_gain": 1.3e-3,
+      "dataset_size": 1300
+    },
+    "7": {
+      "mu_i": 1.05e-28,
+      "c_ir": 1050,
+      "max_frequency": 1.05e9,
+      "max_power": 0.105,
+      "channel_gain": 1.05e-3,
+      "dataset_size": 1050
+    },
+    "8": {
+      "mu_i": 0.95e-28,
+      "c_ir": 950,
+      "max_frequency": 0.95e9,
+      "max_power": 0.095,
+      "channel_gain": 0.95e-3,
+      "dataset_size": 950
+    },
+    "9": {
+      "mu_i": 1.15e-28,
+      "c_ir": 1150,
+      "max_frequency": 1.15e9,
+      "max_power": 0.115,
+      "channel_gain": 1.15e-3,
+      "dataset_size": 1150
+    },
+    "10": {
+      "mu_i": 0.85e-28,
+      "c_ir": 850,
+      "max_frequency": 0.85e9,
+      "max_power": 0.085,
+      "channel_gain": 0.85e-3,
+      "dataset_size": 850
+    }
+  },
+  "communication": {
+    "noise_power_density": 1e-9,
+    "base_bandwidth": 1e6,
+    "fdma_enabled": true
+  },
+  "training": {
+    "global_rounds": 10,
+    "eval_frequency": 1,
+    "convergence_threshold": 0.01,
+    "enable_metrics_logging": true
+  }
+}

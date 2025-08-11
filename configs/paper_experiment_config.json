@@ -1,0 +1,83 @@
+{
+  "paper_experiment_config": {
+    "basic_parameters": {
+      "N": 5,
+      "R": 3,
+      "rho": 1.0,
+      "tau": 3,
+      "T": 35
+    },
+    "communication_parameters": {
+      "g_i_t_range_db": [-73.0, -63.0],
+      "N_0_range_dbm_hz": [-174.0, -124.0],
+      "p_i_t_range_dbm": [10.0, 33.0]
+    },
+    "computation_parameters": {
+      "mu_i": 1e-27,
+      "c_i_1_range": [6.07e5, 7.41e5],
+      "c_i_2_range": [6.07e5, 7.41e5],
+      "c_i_3_range": [1.10e8, 1.34e8]
+    },
+    "reward_weights": {
+      "sigma_1": [100.0, 100.0, 100.0],
+      "sigma_2": [4.8, 31.25, 12.5],
+      "sigma_3": [0.8, 25.0, 16.6],
+      "sigma_4": [0.8, 25.0, 16.6]
+    },
+    "pac_algorithm": {
+      "actor_lr": 0.001,
+      "critic_lr": 0.001,
+      "q_network_hidden": [64, 128],
+      "policy_network_hidden": [64, 128, 64]
+    },
+    "system_constraints": {
+      "f_min_ghz": 0.5,
+      "f_max_ghz": 3.5,
+      "B_min_mhz": 0.0,
+      "B_max_mhz": 30.0
+    },
+    "training_parameters": {
+      "batch_size": 64,
+      "learning_rate": 0.001,
+      "optimizer": "Adam"
+    },
+    "model_architectures": {
+      "task_r1": {
+        "type": "cnn",
+        "description": "四层卷积神经网络",
+        "conv_layers": [48, 96, 192, 256],
+        "kernel_size": [3, 3],
+        "fc_layers": [512, 64, 10],
+        "dataset": "cifar10"
+      },
+      "task_r2": {
+        "type": "cnn", 
+        "description": "双层CNN架构",
+        "conv_layers": [32, 64],
+        "kernel_size": [5, 5],
+        "fc_layers": [64, 10],
+        "dataset": "fashionmnist"
+      },
+      "task_r3": {
+        "type": "mlp",
+        "description": "双层全连接网络",
+        "fc_layers": [128, 10],
+        "dataset": "mnist"
+      }
+    },
+    "data_distribution": {
+      "type": "iid",
+      "client_assignment": {
+        "service_1": [1, 2],
+        "service_2": [3, 4], 
+        "service_3": [5]
+      }
+    }
+  },
+  "experiment_execution": {
+    "output_directory": "./experimental_data",
+    "save_frequency": 10,
+    "evaluation_episodes": 10,
+    "random_seed": 42
+  }
+}
