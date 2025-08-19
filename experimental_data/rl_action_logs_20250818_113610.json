@@ -1,0 +1,252 @@
+[
+  [
+    {
+      "step": 1,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1617562624.0,
+            "bandwidth": 13723825.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.16796875,
+          "loss": 2.206762671470642,
+          "reward": -425746.66883279354,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1938303744.0,
+            "bandwidth": 15212055.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8671875,
+          "loss": 0.39827217906713486,
+          "reward": -20173540.32754836,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1968959360.0,
+            "bandwidth": 13163122.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9765625,
+          "loss": 0.11187285929918289,
+          "reward": -15166986.748108668,
+          "q_level": 32
+        }
+      }
+    },
+    {
+      "step": 2,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1411063808.0,
+            "bandwidth": 12795849.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.27734375,
+          "loss": 5.0811463594436646,
+          "reward": -357670.753278455,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 4,
+            "cpu_frequency": 1249767680.0,
+            "bandwidth": 9159878.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.86328125,
+          "loss": 0.9845860749483109,
+          "reward": -20181296.17767506,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1746118400.0,
+            "bandwidth": 19399260.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9765625,
+          "loss": 0.2205038971733302,
+          "reward": -14014064.231072249,
+          "q_level": 32
+        }
+      }
+    },
+    {
+      "step": 3,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1163798528.0,
+            "bandwidth": 14091148.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.44921875,
+          "loss": 19.353490352630615,
+          "reward": -580102.1972505853,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 4,
+            "cpu_frequency": 1265145088.0,
+            "bandwidth": 8502290.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8671875,
+          "loss": 1.3856494426727295,
+          "reward": -20191209.887988918,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1771180032.0,
+            "bandwidth": 19248524.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9765625,
+          "loss": 0.2301344182342291,
+          "reward": -14015797.469752599,
+          "q_level": 32
+        }
+      }
+    }
+  ],
+  [
+    {
+      "step": 1,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1617562624.0,
+            "bandwidth": 13723825.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.640625,
+          "loss": 15.013623714447021,
+          "reward": -580844.9836099425,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1938303744.0,
+            "bandwidth": 15212055.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.88671875,
+          "loss": 0.8408035561442375,
+          "reward": -20173541.484437414,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1968959360.0,
+            "bandwidth": 13163122.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9921875,
+          "loss": 0.1625961783574894,
+          "reward": -15166986.428761546,
+          "q_level": 32
+        }
+      }
+    },
+    {
+      "step": 2,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 578842752.0,
+            "bandwidth": 14789491.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.5703125,
+          "loss": 10.288005113601685,
+          "reward": -579420.2049222571,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1282096896.0,
+            "bandwidth": 8812108.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8671875,
+          "loss": 0.6929032579064369,
+          "reward": -20187484.436663453,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1750480000.0,
+            "bandwidth": 19340774.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.96875,
+          "loss": 0.27563474606722593,
+          "reward": -14014436.102486266,
+          "q_level": 32
+        }
+      }
+    },
+    {
+      "step": 3,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 753888000.0,
+            "bandwidth": 15798821.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.46484375,
+          "loss": 2.7885486483573914,
+          "reward": -579431.3244108447,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1225954816.0,
+            "bandwidth": 8761744.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8359375,
+          "loss": 0.9935266748070717,
+          "reward": -20185655.356229763,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1772958976.0,
+            "bandwidth": 19177612.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.96875,
+          "loss": 0.28585728188045323,
+          "reward": -14016056.672104208,
+          "q_level": 32
+        }
+      }
+    }
+  ]
+]

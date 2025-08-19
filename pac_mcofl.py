@@ -843,6 +843,52 @@ class PACMCoFLTrainer:
         # 本回合逐步日志
         episode_logs: List[Dict[str, Any]] = []
         
+        # 在任何训练发生前，进行一次未训练评估并记录(step=0)
+        try:
+            initial_step_logs: Dict[int, Dict[str, Any]] = {}
+            for sid in self.service_ids:
+                acc = 0.0; avg_loss = 0.0
+                try:
+                    dl = self.fl_system.service_data_loaders.get(sid)
+                    test_sets = dl.fl_test_set() if dl else []
+                    model_module = self.fl_system.service_models[sid].model
+                    model_module.eval()
+                    device = next(model_module.parameters()).device
+                    correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
+                    criterion = torch.nn.CrossEntropyLoss()
+                    for entry in test_sets:
+                        for batch in entry.get('batches', []):
+                            feats = batch.get('features'); labels = batch.get('labels')
+                            if feats is None or labels is None:
+                                continue
+                            feats = feats.to(device); labels = labels.to(device)
+                            with torch.no_grad():
+                                out = model_module(feats)
+                                loss = criterion(out, labels)
+                            loss_sum += loss.item()
+                            preds = out.argmax(1)
+                            correct += (preds == labels).sum().item()
+                            total += labels.size(0)
+                            num_batches += 1
+                    if total > 0:
+                        acc = correct / total
+                        avg_loss = loss_sum / max(num_batches, 1)
+                except Exception as e:
+                    try:
+                        print(f"[WARN][RL-FL Link] 初始未训练评估失败(服务{sid}): {e}")
+                    except Exception:
+                        pass
+                # 记录日志与趋势
+                initial_step_logs[sid] = {
+                    'accuracy': float(acc),
+                    'loss': float(avg_loss),
+                    'q_level': int(getattr(self.fl_system.service_models.get(sid, None), 'quantization_level', 0)) if self.fl_system and sid in self.fl_system.service_models else 0
+                }
+                self.accuracy_trends[sid].append(float(acc))
+            episode_logs.append({'step': 0, 'services': initial_step_logs})
+        except Exception:
+            pass
+
         # 算法1步骤20: 创建回合批次存储经验
         episode_batch = []
         
@@ -888,12 +934,15 @@ class PACMCoFLTrainer:
             except Exception:
                 pass
 
-            # 真实训练 + 快速评估 + 奖励一次性计算
+            # 评估(训练前) + 奖励计算，然后再进行真实训练
             # 当前步各服务日志容器
             step_service_logs: Dict[int, Dict[str, Any]] = {}
             for sid, act_arr in actions.items():
                 n_clients = int(max(1, min(len(self.fl_system.service_configs[sid].client_ids), round(act_arr[0]))))
                 q_level = int(max(1, min(32, round(act_arr[3])))) if len(act_arr) > 3 else 8
+                # 从动作数组提取f和B（保持客户端选择逻辑不变）
+                cpu_freq = float(act_arr[1]) if len(act_arr) > 1 else self.constraints.min_frequency
+                bandwidth = float(act_arr[2]) if len(act_arr) > 2 else self.constraints.min_bandwidth
 
                 trainer = self.fl_system.service_trainers.get(sid)
                 if trainer is not None and hasattr(trainer, 'users_per_round'):
@@ -905,61 +954,61 @@ class PACMCoFLTrainer:
                     except Exception:
                         pass
 
+                # 注入f/B/q覆盖，影响系统能耗/时延与量化通信量
+                try:
+                    self.fl_system.set_service_action(
+                        service_id=sid,
+                        n_clients=n_clients,
+                        cpu_frequency=cpu_freq,
+                        bandwidth=bandwidth,
+                        quantization_level=q_level,
+                    )
+                except Exception as e:
+                    print(f"[WARN] set_service_action 失败: {e}")
+
                 fl_model = self.fl_system.service_models.get(sid)
                 if fl_model and getattr(self.fl_system, 'debug_disable_quant', False) is False:
                     if hasattr(fl_model, 'quantization_level'):
                         fl_model.quantization_level = q_level
 
-                # 单轮加速训练（epochs临时压缩）
-                if trainer is not None and hasattr(trainer, 'cfg'):
-                    prev_epochs = getattr(trainer.cfg, 'epochs', 1)
-                    prev_eval_freq = getattr(trainer.cfg, 'eval_epoch_frequency', None)
-                    trainer.cfg.epochs = 1
-                    if prev_eval_freq is not None:
-                        trainer.cfg.eval_epoch_frequency = 10**6
-                try:
-                    self.fl_system.train_service(sid, num_rounds=1, enable_metrics=False)
-                except Exception as e:
-                    print(f"[WARN][RL-FL Link] 服务{sid} 真实训练失败: {e}")
-                finally:
-                    if trainer is not None and hasattr(trainer, 'cfg'):
-                        trainer.cfg.epochs = prev_epochs
-                        if prev_eval_freq is not None:
-                            trainer.cfg.eval_epoch_frequency = prev_eval_freq
-
-                # 快速评估 (限制批次数)
+                # 全量测试评估（降低频率），在训练前进行
+                # 每隔 EVAL_FREQUENCY 步执行一次全量评估；其余步复用上一时刻的准确率以降低评估开销
+                EVAL_FREQUENCY = 2
+                do_full_eval = ((step % EVAL_FREQUENCY) == 0) or ((step + 1) == self.config.max_rounds_per_episode)
                 acc = 0.0; avg_loss = 0.0
                 try:
                     model_module = self.fl_system.service_models[sid].model
                     model_module.eval()
                     device = next(model_module.parameters()).device
-                    dl = self.fl_system.service_data_loaders.get(sid)
-                    test_sets = dl.fl_test_set() if dl else []
-                    taken = 0; correct = 0; total = 0; loss_sum = 0.0
-                    criterion = torch.nn.CrossEntropyLoss()
-                    for entry in test_sets:
-                        for batch in entry.get('batches', [])[:2]:
-                            feats = batch.get('features'); labels = batch.get('labels')
-                            if feats is None or labels is None:
-                                continue
-                            feats = feats.to(device); labels = labels.to(device)
-                            with torch.no_grad():
-                                out = model_module(feats)
-                                loss = criterion(out, labels)
-                            loss_sum += loss.item()
-                            preds = out.argmax(1)
-                            correct += (preds == labels).sum().item()
-                            total += labels.size(0)
-                            taken += 1
-                            if taken >= 6:
-                                break
-                        if taken >= 6:
-                            break
-                    if total > 0:
-                        acc = correct / total
-                        avg_loss = loss_sum / max(taken,1)
+                    if do_full_eval:
+                        dl = self.fl_system.service_data_loaders.get(sid)
+                        test_sets = dl.fl_test_set() if dl else []
+                        correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
+                        criterion = torch.nn.CrossEntropyLoss()
+                        for entry in test_sets:
+                            for batch in entry.get('batches', []):
+                                feats = batch.get('features'); labels = batch.get('labels')
+                                if feats is None or labels is None:
+                                    continue
+                                feats = feats.to(device); labels = labels.to(device)
+                                with torch.no_grad():
+                                    out = model_module(feats)
+                                    loss = criterion(out, labels)
+                                loss_sum += loss.item()
+                                preds = out.argmax(1)
+                                correct += (preds == labels).sum().item()
+                                total += labels.size(0)
+                                num_batches += 1
+                        if total > 0:
+                            acc = correct / total
+                            avg_loss = loss_sum / max(num_batches, 1)
+                    else:
+                        # 复用上一时刻的准确率，避免额外评估开销
+                        prev_acc_list = self.accuracy_trends.get(sid, [])
+                        acc = float(prev_acc_list[-1]) if isinstance(prev_acc_list, list) and len(prev_acc_list) > 0 else 0.0
+                        avg_loss = 0.0
                 except Exception as e:
-                    print(f"[WARN][RL-FL Link] 快速评估失败: {e}")
+                    print(f"[WARN][RL-FL Link] 全量测试评估失败: {e}")
 
                 # 更新观测并计算奖励
                 # 基于环境仿真得到的系统代价观测，再覆盖真实评测得到的精度/损失/量化级别
@@ -1025,7 +1074,7 @@ class PACMCoFLTrainer:
                 except Exception:
                     pass
 
-            # 存储经验
+            # 存储经验（基于训练前评估的奖励）
             for sid in self.service_ids:
                 joint_action = np.concatenate([actions[o] for o in self.service_ids if o != sid])
                 exp = {
@@ -1038,6 +1087,27 @@ class PACMCoFLTrainer:
                 }
                 episode_batch.append((sid, exp))
                 self.agents[sid].add_experience(**exp)
+
+            # 在完成记录与经验存储后，执行单轮真实训练
+            for sid, act_arr in actions.items():
+                trainer = self.fl_system.service_trainers.get(sid)
+                prev_epochs = 1
+                prev_eval_freq = None
+                if trainer is not None and hasattr(trainer, 'cfg'):
+                    prev_epochs = getattr(trainer.cfg, 'epochs', 1)
+                    prev_eval_freq = getattr(trainer.cfg, 'eval_epoch_frequency', None)
+                    trainer.cfg.epochs = 1
+                    if prev_eval_freq is not None:
+                        trainer.cfg.eval_epoch_frequency = 10**6
+                try:
+                    self.fl_system.train_service(sid, num_rounds=1, enable_metrics=False)
+                except Exception as e:
+                    print(f"[WARN][RL-FL Link] 服务{sid} 真实训练失败: {e}")
+                finally:
+                    if trainer is not None and hasattr(trainer, 'cfg'):
+                        trainer.cfg.epochs = prev_epochs
+                        if prev_eval_freq is not None:
+                            trainer.cfg.eval_epoch_frequency = prev_eval_freq
 
             for sid, rw in rewards.items():
                 episode_rewards[sid] += rw

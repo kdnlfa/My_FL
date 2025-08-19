@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from quantization import QuantizationModule, AdaptiveQuantization
+import math
 from communication import SystemMetrics, ClientMetrics
 
 @dataclass
@@ -71,31 +72,16 @@ class MultiServiceFLDataLoader(IFLDataLoader):
     """
     
     def __init__(self, 
-                 datasets: Dict[int, torch.utils.data.Dataset],
-                 service_assignments: Dict[int, int],  # client_id -> service_id
-                 batch_size: int = 32,
-                 drop_last: bool = False,
-                 eval_datasets: Optional[Dict[int, torch.utils.data.Dataset]] = None,
-                 test_datasets: Optional[Dict[int, torch.utils.data.Dataset]] = None,
-                 train_ratio: float = 0.8,
-                 eval_ratio: float = 0.1,
-                 test_ratio: float = 0.1,
-                 random_seed: int = 42):
-        """
-        初始化多服务数据加载器。
-        
-        参数:
-            datasets: 将client_id映射到数据集的字典
-            service_assignments: 从client_id到service_id的映射
-            batch_size: 训练批次大小
-            drop_last: 是否丢弃最后一个不完整的批次
-            eval_datasets: 可选的评估数据集
-            test_datasets: 可选的测试数据集
-            train_ratio: 训练集比例 (默认0.8)
-            eval_ratio: 评估集比例 (默认0.1)
-            test_ratio: 测试集比例 (默认0.1)
-            random_seed: 随机种子，确保可重现性
-        """
+                    datasets: Dict[int, torch.utils.data.Dataset],
+                    service_assignments: Dict[int, int],  # client_id -> service_id
+                    batch_size: int = 32,
+                    drop_last: bool = False,
+                    eval_datasets: Optional[Dict[int, torch.utils.data.Dataset]] = None,
+                    test_datasets: Optional[Dict[int, torch.utils.data.Dataset]] = None,
+                    train_ratio: float = 0.8,
+                    eval_ratio: float = 0.1,
+                    test_ratio: float = 0.1,
+                    random_seed: int = 42):
         self.datasets = datasets
         self.service_assignments = service_assignments
         self.batch_size = batch_size
@@ -439,12 +425,74 @@ class MultiServiceFLSystem:
         self.service_data_providers: Dict[int, IFLDataProvider] = {}
         self.service_data_loaders: Dict[int, MultiServiceFLDataLoader] = {}
 
+        # 每轮由RL覆盖注入的服务动作参数（不改变客户端选择逻辑）
+        # 结构: { service_id: { 'n_clients': int, 'cpu_frequency': float, 'bandwidth': float, 'quantization_level': int } }
+        self.service_action_overrides: Dict[int, Dict[str, Any]] = {}
+
         # 基础配置与调试标志
         self.base_config = self._load_base_config(base_config_path)
         self.debug_disable_quant = debug_disable_quant
         self.debug_verbose = debug_verbose
 
         print(f"初始化多服务联邦学习系统，包含 {len(service_configs)} 个服务 (debug_disable_quant={debug_disable_quant}, debug_verbose={debug_verbose})")
+
+    def _ensure_scalar_quant_channel(self, trainer, n_bits: int) -> None:
+        """确保训练器与服务器使用标量量化通道，并设置位宽，用于上传前量化。"""
+        try:
+            from flsim.channels.scalar_quantization_channel import ScalarQuantizationChannel
+        except Exception:
+            return
+
+        # 将 qLevel(级数) 映射为位数：bits = ceil(log2(q)), 并裁剪到 [1, 8]
+        n_bits = int(max(1, min(8, n_bits)))
+
+        # 若已是标量量化通道，则更新位宽及相关量化器
+        if hasattr(trainer, 'channel') and isinstance(trainer.channel, ScalarQuantizationChannel):
+            ch = trainer.channel
+            # 更新 cfg 与内部量化边界/观察器
+            try:
+                ch.cfg.n_bits = n_bits
+            except Exception:
+                pass
+            ch.quant_min = -(2 ** (n_bits - 1))
+            ch.quant_max = (2 ** (n_bits - 1)) - 1
+            ch.observer, ch.quantizer = ch.get_observers_and_quantizers()
+            # 确保服务器也使用同一通道实例
+            if hasattr(trainer, 'server') and hasattr(trainer.server, '_channel'):
+                trainer.server._channel = ch
+            return
+
+        # 若当前为其它通道，则创建新的量化通道并替换
+        try:
+            new_channel = ScalarQuantizationChannel(n_bits=n_bits)
+            # 训练器与服务器同时替换为同一实例，保证一致
+            if hasattr(trainer, 'channel'):
+                trainer.channel = new_channel
+            if hasattr(trainer, 'server') and hasattr(trainer.server, '_channel'):
+                trainer.server._channel = new_channel
+        except Exception:
+            # 忽略失败，保持原通道
+            pass
+
+    def set_service_action(self,
+                           service_id: int,
+                           n_clients: Optional[int] = None,
+                           cpu_frequency: Optional[float] = None,
+                           bandwidth: Optional[float] = None,
+                           quantization_level: Optional[int] = None) -> None:
+        """由RL在每步调用，注入本轮服务的动作参数以影响能耗/时延/通信量计算。
+        注意：不改变FLSim内部客户端选择，仅用于系统指标与通信建模。
+        """
+        ov = self.service_action_overrides.get(service_id, {})
+        if n_clients is not None:
+            ov['n_clients'] = int(max(1, n_clients))
+        if cpu_frequency is not None:
+            ov['cpu_frequency'] = float(max(1e3, cpu_frequency))
+        if bandwidth is not None:
+            ov['bandwidth'] = float(max(0.0, bandwidth))
+        if quantization_level is not None:
+            ov['quantization_level'] = int(max(1, quantization_level))
+        self.service_action_overrides[service_id] = ov
         
     def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         result = copy.deepcopy(base) if base else {}
@@ -461,21 +509,36 @@ class MultiServiceFLSystem:
 
     def _load_base_config(self, config_path: Optional[str]) -> Dict[str, Any]:
         """加载基础 FLSim 配置，仅从JSON文件读取。"""
-        if not config_path:
-            config_path = "./configs/flsim_base_config.json"  # 默认配置文件路径
+        candidates: List[Path] = []
+        if config_path:
+            candidates.append(Path(config_path))
+        else:
+            # 优先使用与当前文件同级的 configs
+            try:
+                here = Path(__file__).resolve().parent
+                candidates.append(here / "configs" / "flsim_base_config.json")
+            except Exception:
+                pass
+            # 工作目录下的 My_FL/configs
+            candidates.append(Path.cwd() / "My_FL" / "configs" / "flsim_base_config.json")
+            # 工作目录下的 configs
+            candidates.append(Path.cwd() / "configs" / "flsim_base_config.json")
         
-        config_file = Path(config_path)
-        if not config_file.exists():
+        config_file = None
+        for p in candidates:
+            if p and p.exists():
+                config_file = p
+                break
+        if config_file is None:
+            tried = "\n".join(str(p) for p in candidates)
             raise FileNotFoundError(
-                f"配置文件不存在: {config_path}\n"
-                f"请确保配置文件存在，或者创建默认配置文件。\n"
-                f"建议运行: python -c \"from multi_service_fl import create_default_config; create_default_config()\""
+                "配置文件不存在于以下任一路径:\n" + tried
             )
         
         try:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print(f"✅ 成功加载配置文件: {config_path}")
+            print(f"✅ 成功加载配置文件: {config_file}")
             return config
         except json.JSONDecodeError as e:
             raise ValueError(f"配置文件格式错误: {e}")
@@ -791,8 +854,128 @@ class MultiServiceFLSystem:
             raise ValueError(f"服务 {service_id} 尚未设置")
         
         trainer = self.service_trainers[service_id]
-        data_provider = self.service_data_providers[service_id]
+        base_data_provider = self.service_data_providers[service_id]
         model = self.service_models[service_id]
+
+        # 读取当前轮RL动作覆盖（若有）
+        action_ov = self.service_action_overrides.get(service_id, {})
+
+        # 1) 上传前量化：不再进行“入训量化”权重注入；改为在客户端本地训练完成、上传前通过通道进行量化。
+        #    这里仅同步 qLevel 到模型记录与通道位宽设置。
+        try:
+            if 'quantization_level' in action_ov:
+                model.quantization_level = int(action_ov['quantization_level'])
+        except Exception:
+            pass
+
+        # 将 qLevel(级数) 转为通道位宽，并保证位宽在 [1, 8]
+        try:
+            q_level = int(action_ov.get('quantization_level', getattr(model, 'quantization_level', 8)))
+            # bits ≈ ceil(log2(q_level))，避免 0
+            n_bits = int(max(1, math.ceil(math.log2(max(2, q_level)))))
+            self._ensure_scalar_quant_channel(trainer, n_bits)
+            if self.debug_verbose:
+                print(f"[DEBUG][S{service_id}] 配置上传前量化位宽: q_level={q_level} -> n_bits={n_bits}")
+        except Exception as e:
+            if self.debug_verbose:
+                print(f"[DEBUG][S{service_id}] 配置上传前量化失败: {e}")
+
+        # 2) n 的裁剪方案：基于RL覆盖的 n 限制本轮实际参与训练的用户数
+        #    通过包装一个裁剪后的数据提供器实现，对FLSim透明。
+        try:
+            base_num_users = base_data_provider.num_train_users()
+        except Exception:
+            base_num_users = -1
+        n_override = int(action_ov.get('n_clients', base_num_users)) if base_num_users > 0 else base_num_users
+        if base_num_users > 0:
+            n_effective = max(1, min(n_override, base_num_users))
+        else:
+            n_effective = base_num_users  # 维持不可用状态
+
+        data_provider = base_data_provider
+        if base_num_users > 0 and n_effective != base_num_users:
+            from flsim.data.data_provider import IFLDataProvider as _IFLDP
+
+            class _TrimmedDataProvider(_IFLDP):
+                def __init__(self, base_dp, take_n: int):
+                    self._base = base_dp
+                    self._n = int(take_n)
+
+                # 训练相关裁剪
+                def train_users(self):
+                    users = self._base.train_users()
+                    try:
+                        return users[: self._n]
+                    except Exception:
+                        return [self._base.get_train_user(i) for i in range(self._n)]
+
+                def train_user_ids(self):
+                    return list(range(self._n))
+
+                def num_train_users(self):
+                    return self._n
+
+                def get_train_user(self, user_id: int):
+                    if 0 <= user_id < self._n:
+                        return self._base.get_train_user(user_id)
+                    # 超界返回一个空用户，避免训练访问越界
+                    return self._create_empty_user_data()
+
+                # 评估/测试透传
+                def eval_users(self):
+                    return self._base.eval_users()
+
+                def test_users(self):
+                    return self._base.test_users()
+
+                def num_eval_users(self):
+                    return self._base.num_eval_users()
+
+                def num_test_users(self):
+                    return self._base.num_test_users()
+
+                def get_eval_user(self, user_id: int):
+                    return self._base.get_eval_user(user_id)
+
+                def get_test_user(self, user_id: int):
+                    return self._base.get_test_user(user_id)
+
+                # 与我们内部构造的数据提供器对齐的空用户
+                def _create_empty_user_data(self):
+                    try:
+                        from flsim.data.data_provider import IFLUserData as _IFLUser
+                    except Exception:
+                        _IFLUser = object  # 兜底
+
+                    class _EmptyUser(_IFLUser):
+                        def __iter__(self):
+                            return iter([])
+
+                        def __len__(self):
+                            return 0
+
+                        def train_data(self):
+                            return iter([])
+
+                        def eval_data(self):
+                            return iter([])
+
+                        def num_train_batches(self) -> int:
+                            return 0
+
+                        def num_eval_batches(self) -> int:
+                            return 0
+
+                        def num_train_examples(self) -> int:
+                            return 0
+
+                        def num_eval_examples(self) -> int:
+                            return 0
+
+                    return _EmptyUser()
+
+            data_provider = _TrimmedDataProvider(base_data_provider, n_effective)
+            print(f"[DEBUG][S{service_id}] 本轮训练将裁剪参与用户数: {base_num_users} -> {n_effective}")
         
         try:
             from flsim.interfaces.metrics_reporter import Channel
@@ -825,7 +1008,7 @@ class MultiServiceFLSystem:
         except Exception as e:
             print(f"[DEBUG] 训练用户统计失败: {e}")
 
-        # 取首个 batch 做前向，记录初始损失/精度
+    # 取首个 batch 做前向，记录初始损失/精度（在入训量化之后）
         def _get_first_batch():
             try:
                 for u in range(num_users):
@@ -950,11 +1133,26 @@ class MultiServiceFLSystem:
         config = self.service_configs[service_id]
         model = self.service_models[service_id]
 
-        # 计算量化指标
+        # 读取当前轮的动作覆盖参数
+        action_ov = self.service_action_overrides.get(service_id, {})
+
+        # 若RL覆盖了量化级别，则应用到模型再计算通信量
+        if 'quantization_level' in action_ov and not self.debug_disable_quant:
+            try:
+                model.quantization_level = int(action_ov['quantization_level'])
+            except Exception:
+                pass
+
+        # 计算量化指标（通信量随q变化）
         _, comm_volume = model.quantize_parameters()
 
         # 计算每个客户端的指标
         service_metrics = []
+        # 覆盖的客户端数用于带宽在客户端间的等分（不改变选择集合）
+        n_clients_override = int(action_ov.get('n_clients', len(config.client_ids)))
+        # 服务带宽按选用客户端数等分给单个客户端（FDMA简化）
+        service_bandwidth = float(action_ov.get('bandwidth', 1e6))  # 默认1MHz
+        per_client_bandwidth = max(service_bandwidth / max(n_clients_override, 1), 1e3)  # 至少1kHz避免除零
         for client_id in config.client_ids:
             if client_id in self.client_configs:
                 client_config = self.client_configs[client_id]
@@ -966,9 +1164,11 @@ class MultiServiceFLSystem:
                     mu_i=client_config.mu_i,
                     c_ir=client_config.c_ir,
                     dataset_size=client_config.dataset_size,
-                    cpu_frequency=client_config.max_frequency,
+                    # 使用RL覆盖的CPU频率，否则退回到客户端上限
+                    cpu_frequency=float(action_ov.get('cpu_frequency', client_config.max_frequency)),
                     communication_volume=comm_volume,
-                    bandwidth=1e6,  
+                    # 使用RL覆盖的带宽（按客户端平均）
+                    bandwidth=per_client_bandwidth,
                     channel_gain=client_config.channel_gain,
                     transmit_power=client_config.max_power
                 )
@@ -981,14 +1181,16 @@ class MultiServiceFLSystem:
         
         # 添加量化信息
         total_params = sum(p.numel() for p in model.model.parameters())
+        q_for_ratio = getattr(model, 'quantization_level', config.quantization_level)
         compression_ratio = (
-            model.quantizer.get_compression_ratio(total_params, config.quantization_level)
+            model.quantizer.get_compression_ratio(total_params, q_for_ratio)
             if hasattr(model, "quantizer") and model.quantizer is not None
             else 0
         )
         
         summary.update({
-            'quantization_level': config.quantization_level,
+            # 报告模型当前量化级别（可能被RL覆盖）
+            'quantization_level': getattr(model, 'quantization_level', config.quantization_level),
             'communication_volume_per_round': comm_volume,
             'total_parameters': total_params,
             'compression_ratio': compression_ratio,

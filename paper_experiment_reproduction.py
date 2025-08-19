@@ -548,48 +548,57 @@ class PaperExperimentRunner:
         service_ids = [1, 2, 3]
         
         # 为每个服务创建权重配置（基于论文σ参数）
-        reward_weights = {}
+        per_service_reward_weights = {}
         for service_id in service_ids:
             sigma_values = self.config.get_service_sigma_values(service_id)
-            reward_weights[service_id] = sigma_values
+            # 环境支持传入按服务ID（字符串）索引的权重表
+            sigma_values = {
+                'sigma_1': sigma_values.get('sigma_1', 100.0) * 10.0,
+                'sigma_2': 0.0,
+                'sigma_3': sigma_values.get('sigma_3', 0.8) * 0.1,
+                'sigma_4': sigma_values.get('sigma_4', 0.8) * 0.1,
+            }
+            per_service_reward_weights[str(service_id)] = sigma_values
         
         self.environment = MultiServiceFLEnvironment(
             service_ids=service_ids,
             constraints=constraints,
             max_rounds=self.config.T,
-            reward_weights=reward_weights[1]  # 使用服务1的权重作为默认
+            reward_weights=per_service_reward_weights  # 为每个服务分别设置奖励权重
         )
+
+        
         
         # 创建PAC配置（基于论文PAC算法参数）
-        # pac_config = PACConfig(
-        #     num_episodes=5,  # 调试联动：先跑少量episode验证
-        #     max_rounds_per_episode=10,  # 减少每episode轮数以加速
-        #     buffer_size=10000,
-        #     batch_size=64,
-        #     actor_hidden_dim=64,    # 论文：策略网络64-128-64
-        #     critic_hidden_dim=64,   # 论文：Q网络64-128
-        #     num_layers=3,
-        #     actor_lr=self.config.zeta,   # 论文：ζ=0.001
-        #     critic_lr=self.config.alpha, # 论文：α=0.001
-        #     gamma=0.95,
-        #     joint_action_samples=100,
-        #     update_frequency=4
-        # )
-
         pac_config = PACConfig(
-            num_episodes=2,              # 原: 5
-            max_rounds_per_episode=3,    # 原: 10
-            buffer_size=2000,            # 原: 10000
-            batch_size=32,               # 原: 64
-            actor_hidden_dim=64,
-            critic_hidden_dim=64,
+            num_episodes=5,  # 调试联动：先跑少量episode验证
+            max_rounds_per_episode=10,  # 减少每episode轮数以加速
+            buffer_size=10000,
+            batch_size=64,
+            actor_hidden_dim=64,    # 论文：策略网络64-128-64
+            critic_hidden_dim=64,   # 论文：Q网络64-128
             num_layers=3,
-            actor_lr=self.config.zeta,
-            critic_lr=self.config.alpha,
+            actor_lr=self.config.zeta,   # 论文：ζ=0.001
+            critic_lr=self.config.alpha, # 论文：α=0.001
             gamma=0.95,
-            joint_action_samples=10,     # 原: 100
-            update_frequency=8           # 原: 4（减少更新频率）
+            joint_action_samples=100,
+            update_frequency=4
         )
+
+        # pac_config = PACConfig(
+        #     num_episodes=2,              # 原: 5
+        #     max_rounds_per_episode=3,    # 原: 10
+        #     buffer_size=2000,            # 原: 10000
+        #     batch_size=32,               # 原: 64
+        #     actor_hidden_dim=64,
+        #     critic_hidden_dim=64,
+        #     num_layers=3,
+        #     actor_lr=self.config.zeta,
+        #     critic_lr=self.config.alpha,
+        #     gamma=0.95,
+        #     joint_action_samples=10,     # 原: 100
+        #     update_frequency=8           # 原: 4（减少更新频率）
+        # )
         
         # 创建PAC训练器
         self.pac_trainer = PACMCoFLTrainer(
