@@ -438,6 +438,7 @@ class MultiServiceFLSystem:
 
     def _ensure_scalar_quant_channel(self, trainer, n_bits: int) -> None:
         """确保训练器与服务器使用标量量化通道，并设置位宽，用于上传前量化。"""
+        
         try:
             from flsim.channels.scalar_quantization_channel import ScalarQuantizationChannel
         except Exception:
@@ -480,8 +481,8 @@ class MultiServiceFLSystem:
                            cpu_frequency: Optional[float] = None,
                            bandwidth: Optional[float] = None,
                            quantization_level: Optional[int] = None) -> None:
-        """由RL在每步调用，注入本轮服务的动作参数以影响能耗/时延/通信量计算。
-        注意：不改变FLSim内部客户端选择，仅用于系统指标与通信建模。
+        """
+        由RL在每步调用，注入本轮服务的动作参数以影响能耗/时延/通信量计算。
         """
         ov = self.service_action_overrides.get(service_id, {})
         if n_clients is not None:

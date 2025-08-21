@@ -1,0 +1,328 @@
+[
+  [
+    {
+      "step": 0,
+      "services": {
+        "1": {
+          "accuracy": 0.4422,
+          "loss": 1.486780372262001,
+          "q_level": 8,
+          "post_train_accuracy": 0.5008,
+          "post_train_loss": 1.353907310962677
+        },
+        "2": {
+          "accuracy": 0.8863333333333333,
+          "loss": 0.30515585348327107,
+          "q_level": 8,
+          "post_train_accuracy": 0.8865,
+          "post_train_loss": 0.2984859213391517
+        },
+        "3": {
+          "accuracy": 0.9701666666666666,
+          "loss": 0.10312923891073529,
+          "q_level": 8,
+          "post_train_accuracy": 0.9708333333333333,
+          "post_train_loss": 0.10278878426872828
+        }
+      }
+    },
+    {
+      "step": 1,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1617562624.0,
+            "bandwidth": 13723825.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.4468,
+          "loss": 1.4873544976115227,
+          "reward": -57644.34416179657,
+          "q_level": 32,
+          "post_train_accuracy": 0.5648,
+          "post_train_loss": 1.2054713197052478
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1938303744.0,
+            "bandwidth": 15212055.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8863333333333333,
+          "loss": 0.30515585348327107,
+          "reward": -2016478.2413871405,
+          "q_level": 32,
+          "post_train_accuracy": 0.8925,
+          "post_train_loss": 0.28364440553048825
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1968959360.0,
+            "bandwidth": 13163122.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9701666666666666,
+          "loss": 0.10312923891073529,
+          "reward": -1403784.077295378,
+          "q_level": 32,
+          "post_train_accuracy": 0.9705,
+          "post_train_loss": 0.1021365910481186
+        }
+      }
+    },
+    {
+      "step": 2,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1350928512.0,
+            "bandwidth": 13124595.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.4952,
+          "loss": 1.352674962580204,
+          "reward": -35263.19575491477,
+          "q_level": 32,
+          "post_train_accuracy": 0.6052,
+          "post_train_loss": 1.1102964565157891
+        },
+        "2": {
+          "action": {
+            "n_clients": 4,
+            "cpu_frequency": 1244369408.0,
+            "bandwidth": 9285763.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8865,
+          "loss": 0.2984859213391517,
+          "reward": -2017068.433552447,
+          "q_level": 32,
+          "post_train_accuracy": 0.892,
+          "post_train_loss": 0.2810563831094732
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1744627456.0,
+            "bandwidth": 19397196.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9701666666666666,
+          "loss": 0.0,
+          "reward": -1554008.0394258192,
+          "q_level": 32,
+          "post_train_accuracy": 0.972,
+          "post_train_loss": 0.10140310625169188
+        }
+      }
+    },
+    {
+      "step": 3,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1336071936.0,
+            "bandwidth": 13446907.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.5544,
+          "loss": 1.2326381489634515,
+          "reward": -42005.57980333948,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1226319488.0,
+            "bandwidth": 9194146.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8925,
+          "loss": 0.28364440553048825,
+          "reward": -2017098.9595121911,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1755188480.0,
+            "bandwidth": 19568872.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9705,
+          "loss": 0.1021365910481186,
+          "reward": -1512566.9443599829,
+          "q_level": 32
+        }
+      }
+    }
+  ],
+  [
+    {
+      "step": 0,
+      "services": {
+        "1": {
+          "accuracy": 0.601,
+          "loss": 1.1239235699176788,
+          "q_level": 32,
+          "post_train_accuracy": 0.6348,
+          "post_train_loss": 1.0366728469729423
+        },
+        "2": {
+          "accuracy": 0.892,
+          "loss": 0.2810563831094732,
+          "q_level": 32,
+          "post_train_accuracy": 0.8963333333333333,
+          "post_train_loss": 0.27055951239580806
+        },
+        "3": {
+          "accuracy": 0.972,
+          "loss": 0.10140310625169188,
+          "q_level": 32,
+          "post_train_accuracy": 0.9721666666666666,
+          "post_train_loss": 0.10053395928735746
+        }
+      }
+    },
+    {
+      "step": 1,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1617562624.0,
+            "bandwidth": 13723825.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.6012,
+          "loss": 1.1101557970046998,
+          "reward": -57489.94416179658,
+          "q_level": 32,
+          "post_train_accuracy": 0.664,
+          "post_train_loss": 1.0101377256214619
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1938303744.0,
+            "bandwidth": 15212055.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.892,
+          "loss": 0.2810563831094732,
+          "reward": -2016472.5747204737,
+          "q_level": 32,
+          "post_train_accuracy": 0.9003333333333333,
+          "post_train_loss": 0.26706030639879247
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1968959360.0,
+            "bandwidth": 13163122.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.972,
+          "loss": 0.10140310625169188,
+          "reward": -1403782.2439620448,
+          "q_level": 32,
+          "post_train_accuracy": 0.9728333333333333,
+          "post_train_loss": 0.0992226943948326
+        }
+      }
+    },
+    {
+      "step": 2,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1335569408.0,
+            "bandwidth": 13488820.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.6404,
+          "loss": 1.0198358707129955,
+          "reward": -41919.08572264762,
+          "q_level": 32,
+          "post_train_accuracy": 0.685,
+          "post_train_loss": 1.0135922815650702
+        },
+        "2": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1243629568.0,
+            "bandwidth": 9321867.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.8963333333333333,
+          "loss": 0.27055951239580806,
+          "reward": -2017009.7634685887,
+          "q_level": 32,
+          "post_train_accuracy": 0.9025,
+          "post_train_loss": 0.2572227936000266
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1744498560.0,
+            "bandwidth": 19400986.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.972,
+          "loss": 0.0,
+          "reward": -1588949.3703320774,
+          "q_level": 32,
+          "post_train_accuracy": 0.9731666666666666,
+          "post_train_loss": 0.09789162549745054
+        }
+      }
+    },
+    {
+      "step": 3,
+      "services": {
+        "1": {
+          "action": {
+            "n_clients": 2,
+            "cpu_frequency": 1335637248.0,
+            "bandwidth": 13793258.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.6592,
+          "loss": 1.0106526277959347,
+          "reward": -35089.907768769306,
+          "q_level": 32
+        },
+        "2": {
+          "action": {
+            "n_clients": 4,
+            "cpu_frequency": 1223360640.0,
+            "bandwidth": 9247676.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9003333333333333,
+          "loss": 0.26706030639879247,
+          "reward": -2017009.3374172614,
+          "q_level": 32
+        },
+        "3": {
+          "action": {
+            "n_clients": 3,
+            "cpu_frequency": 1755011328.0,
+            "bandwidth": 19573026.0,
+            "quantization_level": 32
+          },
+          "accuracy": 0.9728333333333333,
+          "loss": 0.0992226943948326,
+          "reward": -1512562.8446479419,
+          "q_level": 32
+        }
+      }
+    }
+  ]
+]

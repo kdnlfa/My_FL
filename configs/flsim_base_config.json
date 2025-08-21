@@ -30,7 +30,7 @@
         "_target_": "flsim.clients.base_client.ClientConfig",
         "epochs": 3,
         "optimizer": {
-          "_target_": "flsim.optimizers.local_optimizers.LocalOptimizerAdamConfig",
+          "_target_": "flsim.optimizers.local_optimizers.LocalOptimizerSGDConfig",
           "lr": 0.001,
           "weight_decay": 0.0
         }

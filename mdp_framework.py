@@ -319,7 +319,7 @@ class RewardFunction:
                  all_actions: Dict[int, Action],
                  communication_volumes: Dict[int, int]) -> float:
         """
-        计算服务提供商r在时间t的奖励，实现公式(17).
+        计算服务提供商r在当前轮次的奖励，实现公式(17).
         
         参数:
             service_id: 服务提供商ID
@@ -640,8 +640,6 @@ class MultiServiceFLEnvironment:
     
     def _simulate_fl_round(self, actions: Dict[int, Action]) -> Tuple[Dict[int, Observation], Dict[int, int]]:
         """
-        模拟一轮联邦学习.
-        
         参数:
             actions: 所有服务提供商采取的动作
             

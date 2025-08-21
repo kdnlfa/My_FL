@@ -1,0 +1,616 @@
+{
+  "config": {
+    "N": 5,
+    "R": 3,
+    "T": 5,
+    "tau": 3,
+    "rho": 1.0,
+    "learning_rates": {
+      "fl": 0.001,
+      "actor": 0.001,
+      "critic": 0.001
+    },
+    "model_architectures": {
+      "r1": "四层CNN(48,96,192,256)+FC(512,64,10)",
+      "r2": "双层CNN(32,64)+FC(64,10)",
+      "r3": "双层MLP(128,10)"
+    }
+  },
+  "baseline_fl_training": {
+    "1": {
+      "metrics": {
+        "rounds": 5
+      },
+      "has_model": true
+    },
+    "2": {
+      "metrics": {
+        "rounds": 3
+      },
+      "has_model": true
+    },
+    "3": {
+      "metrics": {
+        "rounds": 1
+      },
+      "has_model": true
+    }
+  },
+  "training_results": {
+    "episode_rewards": {
+      "1": [
+        -134913.11972005083,
+        -134498.9376532135
+      ],
+      "2": [
+        -6050645.634451779,
+        -6050491.675606324
+      ],
+      "3": [
+        -4470359.06108118,
+        -4505294.458942064
+      ]
+    },
+    "episode_lengths": [
+      3,
+      3
+    ],
+    "cumulative_rewards": {
+      "1": [
+        -129054.41590147949,
+        -128981.71735962611
+      ],
+      "2": [
+        -5753125.064221717,
+        -5752982.777034711
+      ],
+      "3": [
+        -4245183.382034791,
+        -4278372.113072285
+      ]
+    },
+    "training_metrics": {},
+    "accuracy_trends": {
+      "1": [
+        0.5008,
+        0.5648,
+        0.6052,
+        0.5544,
+        0.6348,
+        0.664,
+        0.685,
+        0.6592
+      ],
+      "2": [
+        0.8865,
+        0.8925,
+        0.892,
+        0.8925,
+        0.8963333333333333,
+        0.9003333333333333,
+        0.9025,
+        0.9003333333333333
+      ],
+      "3": [
+        0.9708333333333333,
+        0.9705,
+        0.972,
+        0.9705,
+        0.9721666666666666,
+        0.9728333333333333,
+        0.9731666666666666,
+        0.9728333333333333
+      ]
+    },
+    "action_logs": [
+      [
+        {
+          "step": 0,
+          "services": {
+            "1": {
+              "accuracy": 0.4422,
+              "loss": 1.486780372262001,
+              "q_level": 8,
+              "post_train_accuracy": 0.5008,
+              "post_train_loss": 1.353907310962677
+            },
+            "2": {
+              "accuracy": 0.8863333333333333,
+              "loss": 0.30515585348327107,
+              "q_level": 8,
+              "post_train_accuracy": 0.8865,
+              "post_train_loss": 0.2984859213391517
+            },
+            "3": {
+              "accuracy": 0.9701666666666666,
+              "loss": 0.10312923891073529,
+              "q_level": 8,
+              "post_train_accuracy": 0.9708333333333333,
+              "post_train_loss": 0.10278878426872828
+            }
+          }
+        },
+        {
+          "step": 1,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1617562624.0,
+                "bandwidth": 13723825.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.4468,
+              "loss": 1.4873544976115227,
+              "reward": -57644.34416179657,
+              "q_level": 32,
+              "post_train_accuracy": 0.5648,
+              "post_train_loss": 1.2054713197052478
+            },
+            "2": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1938303744.0,
+                "bandwidth": 15212055.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.8863333333333333,
+              "loss": 0.30515585348327107,
+              "reward": -2016478.2413871405,
+              "q_level": 32,
+              "post_train_accuracy": 0.8925,
+              "post_train_loss": 0.28364440553048825
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1968959360.0,
+                "bandwidth": 13163122.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.9701666666666666,
+              "loss": 0.10312923891073529,
+              "reward": -1403784.077295378,
+              "q_level": 32,
+              "post_train_accuracy": 0.9705,
+              "post_train_loss": 0.1021365910481186
+            }
+          }
+        },
+        {
+          "step": 2,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 2,
+                "cpu_frequency": 1350928512.0,
+                "bandwidth": 13124595.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.4952,
+              "loss": 1.352674962580204,
+              "reward": -35263.19575491477,
+              "q_level": 32,
+              "post_train_accuracy": 0.6052,
+              "post_train_loss": 1.1102964565157891
+            },
+            "2": {
+              "action": {
+                "n_clients": 4,
+                "cpu_frequency": 1244369408.0,
+                "bandwidth": 9285763.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.8865,
+              "loss": 0.2984859213391517,
+              "reward": -2017068.433552447,
+              "q_level": 32,
+              "post_train_accuracy": 0.892,
+              "post_train_loss": 0.2810563831094732
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1744627456.0,
+                "bandwidth": 19397196.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.9701666666666666,
+              "loss": 0.0,
+              "reward": -1554008.0394258192,
+              "q_level": 32,
+              "post_train_accuracy": 0.972,
+              "post_train_loss": 0.10140310625169188
+            }
+          }
+        },
+        {
+          "step": 3,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 2,
+                "cpu_frequency": 1336071936.0,
+                "bandwidth": 13446907.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.5544,
+              "loss": 1.2326381489634515,
+              "reward": -42005.57980333948,
+              "q_level": 32
+            },
+            "2": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1226319488.0,
+                "bandwidth": 9194146.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.8925,
+              "loss": 0.28364440553048825,
+              "reward": -2017098.9595121911,
+              "q_level": 32
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1755188480.0,
+                "bandwidth": 19568872.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.9705,
+              "loss": 0.1021365910481186,
+              "reward": -1512566.9443599829,
+              "q_level": 32
+            }
+          }
+        }
+      ],
+      [
+        {
+          "step": 0,
+          "services": {
+            "1": {
+              "accuracy": 0.601,
+              "loss": 1.1239235699176788,
+              "q_level": 32,
+              "post_train_accuracy": 0.6348,
+              "post_train_loss": 1.0366728469729423
+            },
+            "2": {
+              "accuracy": 0.892,
+              "loss": 0.2810563831094732,
+              "q_level": 32,
+              "post_train_accuracy": 0.8963333333333333,
+              "post_train_loss": 0.27055951239580806
+            },
+            "3": {
+              "accuracy": 0.972,
+              "loss": 0.10140310625169188,
+              "q_level": 32,
+              "post_train_accuracy": 0.9721666666666666,
+              "post_train_loss": 0.10053395928735746
+            }
+          }
+        },
+        {
+          "step": 1,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1617562624.0,
+                "bandwidth": 13723825.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.6012,
+              "loss": 1.1101557970046998,
+              "reward": -57489.94416179658,
+              "q_level": 32,
+              "post_train_accuracy": 0.664,
+              "post_train_loss": 1.0101377256214619
+            },
+            "2": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1938303744.0,
+                "bandwidth": 15212055.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.892,
+              "loss": 0.2810563831094732,
+              "reward": -2016472.5747204737,
+              "q_level": 32,
+              "post_train_accuracy": 0.9003333333333333,
+              "post_train_loss": 0.26706030639879247
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1968959360.0,
+                "bandwidth": 13163122.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.972,
+              "loss": 0.10140310625169188,
+              "reward": -1403782.2439620448,
+              "q_level": 32,
+              "post_train_accuracy": 0.9728333333333333,
+              "post_train_loss": 0.0992226943948326
+            }
+          }
+        },
+        {
+          "step": 2,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 2,
+                "cpu_frequency": 1335569408.0,
+                "bandwidth": 13488820.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.6404,
+              "loss": 1.0198358707129955,
+              "reward": -41919.08572264762,
+              "q_level": 32,
+              "post_train_accuracy": 0.685,
+              "post_train_loss": 1.0135922815650702
+            },
+            "2": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1243629568.0,
+                "bandwidth": 9321867.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.8963333333333333,
+              "loss": 0.27055951239580806,
+              "reward": -2017009.7634685887,
+              "q_level": 32,
+              "post_train_accuracy": 0.9025,
+              "post_train_loss": 0.2572227936000266
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1744498560.0,
+                "bandwidth": 19400986.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.972,
+              "loss": 0.0,
+              "reward": -1588949.3703320774,
+              "q_level": 32,
+              "post_train_accuracy": 0.9731666666666666,
+              "post_train_loss": 0.09789162549745054
+            }
+          }
+        },
+        {
+          "step": 3,
+          "services": {
+            "1": {
+              "action": {
+                "n_clients": 2,
+                "cpu_frequency": 1335637248.0,
+                "bandwidth": 13793258.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.6592,
+              "loss": 1.0106526277959347,
+              "reward": -35089.907768769306,
+              "q_level": 32
+            },
+            "2": {
+              "action": {
+                "n_clients": 4,
+                "cpu_frequency": 1223360640.0,
+                "bandwidth": 9247676.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.9003333333333333,
+              "loss": 0.26706030639879247,
+              "reward": -2017009.3374172614,
+              "q_level": 32
+            },
+            "3": {
+              "action": {
+                "n_clients": 3,
+                "cpu_frequency": 1755011328.0,
+                "bandwidth": 19573026.0,
+                "quantization_level": 32
+              },
+              "accuracy": 0.9728333333333333,
+              "loss": 0.0992226943948326,
+              "reward": -1512562.8446479419,
+              "q_level": 32
+            }
+          }
+        }
+      ]
+    ],
+    "final_performance": {
+      "avg_episode_rewards": {
+        "1": -134706.02868663217,
+        "2": -6050568.655029051,
+        "3": -4487826.760011623
+      },
+      "avg_cumulative_rewards": {
+        "1": -129018.0666305528,
+        "2": -5753053.920628214,
+        "3": -4261777.7475535385
+      }
+    }
+  },
+  "evaluation_results": {
+    "avg_episode_rewards": {
+      "1": -5056032.318439755,
+      "2": -33140055.721282613,
+      "3": -33209276.53574903
+    },
+    "avg_cumulative_rewards": {
+      "1": -4706081.055206364,
+      "2": -31511951.84818254,
+      "3": -31578092.52409283
+    },
+    "avg_episode_length": 3.0,
+    "all_episode_rewards": {
+      "1": [
+        -5179100.09560702,
+        -4995348.866223235,
+        -5123550.067803167,
+        -5234571.168258421,
+        -4867204.290550113,
+        -5123522.293222386,
+        -5179102.904642379,
+        -4995360.95291906,
+        -4867160.564899946,
+        -4995401.980271821
+      ],
+      "2": [
+        -33140045.99798114,
+        -33140061.204468522,
+        -33140123.896432966,
+        -33140059.133082353,
+        -33139982.2912284,
+        -33140063.05576985,
+        -33139994.614563204,
+        -33140116.578846388,
+        -33140057.44672493,
+        -33140052.9937284
+      ],
+      "3": [
+        -33209240.49717831,
+        -33209300.10527668,
+        -33209276.284429207,
+        -33209238.901980866,
+        -33209279.06153425,
+        -33209281.813421667,
+        -33209277.424353853,
+        -33209251.685635567,
+        -33209301.552726872,
+        -33209318.030953042
+      ]
+    },
+    "all_cumulative_rewards": {
+      "1": [
+        -4819321.694630042,
+        -4647395.415030176,
+        -4769188.344297353,
+        -4872020.012808045,
+        -4531747.544574538,
+        -4769161.860194967,
+        -4819325.900874334,
+        -4653496.136348246,
+        -4531707.101542607,
+        -4647446.54176333
+      ],
+      "2": [
+        -31511941.780602988,
+        -31511957.981012635,
+        -31512014.967202656,
+        -31511955.51944599,
+        -31511882.872123577,
+        -31511959.084526986,
+        -31511894.92861537,
+        -31512008.13159154,
+        -31511953.476642393,
+        -31511949.74006129
+      ],
+      "3": [
+        -31578059.46048469,
+        -31578114.930577926,
+        -31578093.06508229,
+        -31578057.057145488,
+        -31578095.33100471,
+        -31578097.602935947,
+        -31578092.58370837,
+        -31578068.93624515,
+        -31578115.953823783,
+        -31578130.31991996
+      ]
+    },
+    "all_episode_lengths": [
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3
+    ]
+  },
+  "model_performance": {
+    "1": {
+      "dataset": "CIFAR-10",
+      "accuracy": 69.23,
+      "loss": 0.976267403288252,
+      "correct": 6923,
+      "total": 10000,
+      "batches_evaluated": 157
+    },
+    "2": {
+      "dataset": "FashionMNIST",
+      "accuracy": 89.77,
+      "loss": 0.2853768499224049,
+      "correct": 8977,
+      "total": 10000,
+      "batches_evaluated": 157
+    },
+    "3": {
+      "dataset": "MNIST",
+      "accuracy": 97.14,
+      "loss": 0.09929600128394946,
+      "correct": 9714,
+      "total": 10000,
+      "batches_evaluated": 157
+    }
+  },
+  "training_summary": {
+    "config": {
+      "num_episodes": 2,
+      "max_rounds_per_episode": 3,
+      "actor_lr": 0.001,
+      "critic_lr": 0.001,
+      "gamma": 0.95
+    },
+    "final_performance": {
+      "1": {
+        "final_episode_reward": -134498.9376532135,
+        "avg_episode_reward": -134706.02868663217,
+        "final_cumulative_reward": -128981.71735962611,
+        "avg_cumulative_reward": -129018.0666305528,
+        "improvement": 414.1820668373257
+      },
+      "2": {
+        "final_episode_reward": -6050491.675606324,
+        "avg_episode_reward": -6050568.655029051,
+        "final_cumulative_reward": -5752982.777034711,
+        "avg_cumulative_reward": -5753053.920628214,
+        "improvement": 153.95884545426816
+      },
+      "3": {
+        "final_episode_reward": -4505294.458942064,
+        "avg_episode_reward": -4487826.760011623,
+        "final_cumulative_reward": -4278372.113072285,
+        "avg_cumulative_reward": -4261777.7475535385,
+        "improvement": -34935.397860883735
+      }
+    },
+    "pareto_optimality": {
+      "final_joint_cumulative_reward": -10160336.607466623,
+      "individual_cumulative_rewards": {
+        "1": -128981.71735962611,
+        "2": -5752982.777034711,
+        "3": -4278372.113072285
+      },
+      "pareto_improvement_achieved": false
+    }
+  },
+  "experiment_duration": 969.9564163684845,
+  "timestamp": "2025-08-20 09:19:27"
+}

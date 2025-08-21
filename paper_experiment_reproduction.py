@@ -552,12 +552,6 @@ class PaperExperimentRunner:
         for service_id in service_ids:
             sigma_values = self.config.get_service_sigma_values(service_id)
             # 环境支持传入按服务ID（字符串）索引的权重表
-            sigma_values = {
-                'sigma_1': sigma_values.get('sigma_1', 100.0) * 10.0,
-                'sigma_2': 0.0,
-                'sigma_3': sigma_values.get('sigma_3', 0.8) * 0.1,
-                'sigma_4': sigma_values.get('sigma_4', 0.8) * 0.1,
-            }
             per_service_reward_weights[str(service_id)] = sigma_values
         
         self.environment = MultiServiceFLEnvironment(
@@ -571,10 +565,10 @@ class PaperExperimentRunner:
         
         # 创建PAC配置（基于论文PAC算法参数）
         pac_config = PACConfig(
-            num_episodes=5,  # 调试联动：先跑少量episode验证
-            max_rounds_per_episode=10,  # 减少每episode轮数以加速
-            buffer_size=10000,
-            batch_size=64,
+            num_episodes=4,  # 调试联动：先跑少量episode验证
+            max_rounds_per_episode=15,  # 减少每episode轮数以加速
+            buffer_size=2000,
+            batch_size=8,
             actor_hidden_dim=64,    # 论文：策略网络64-128-64
             critic_hidden_dim=64,   # 论文：Q网络64-128
             num_layers=3,
@@ -582,23 +576,44 @@ class PaperExperimentRunner:
             critic_lr=self.config.alpha, # 论文：α=0.001
             gamma=0.95,
             joint_action_samples=100,
-            update_frequency=4
+            update_frequency=4,
+            # 三份训练方案（按服务）
+            # 方案A（服务1，CIFAR-10）: 准确率优先 + 稳定性，提升训练量与资源下限，评估每步
+            step_eval_frequency=1,
+            service_eval_frequency={1: 1, 2: 1, 3: 2},
+            service_epochs_per_step={1: 5, 2: 3, 3: 1},
+            service_action_floors={
+                1: { 'min_clients': 2, 'min_frequency': 1.5e9, 'min_bandwidth': 15e6, 'min_quantization': 8 },
+                2: { 'min_clients': 2, 'min_frequency': 1.2e9, 'min_bandwidth': 10e6, 'min_quantization': 6 },
+                3: { 'min_clients': 1, 'min_frequency': 1.0e9, 'min_bandwidth': 5e6,  'min_quantization': 4 }
+            }
         )
 
         # pac_config = PACConfig(
-        #     num_episodes=2,              # 原: 5
-        #     max_rounds_per_episode=3,    # 原: 10
-        #     buffer_size=2000,            # 原: 10000
-        #     batch_size=32,               # 原: 64
-        #     actor_hidden_dim=64,
-        #     critic_hidden_dim=64,
+        #     num_episodes=5,  # 调试联动：先跑少量episode验证
+        #     max_rounds_per_episode=10,  # 减少每episode轮数以加速
+        #     buffer_size=10000,
+        #     batch_size=64,
+        #     actor_hidden_dim=64,    # 论文：策略网络64-128-64
+        #     critic_hidden_dim=64,   # 论文：Q网络64-128
         #     num_layers=3,
-        #     actor_lr=self.config.zeta,
-        #     critic_lr=self.config.alpha,
+        #     actor_lr=self.config.zeta,   # 论文：ζ=0.001
+        #     critic_lr=self.config.alpha, # 论文：α=0.001
         #     gamma=0.95,
-        #     joint_action_samples=10,     # 原: 100
-        #     update_frequency=8           # 原: 4（减少更新频率）
+        #     joint_action_samples=100,
+        #     update_frequency=4,
+        #     # 三份训练方案（按服务）
+        #     # 方案A（服务1，CIFAR-10）: 准确率优先 + 稳定性，提升训练量与资源下限，评估每步
+        #     step_eval_frequency=1,
+        #     service_eval_frequency={1: 1, 2: 1, 3: 2},
+        #     service_epochs_per_step={1: 5, 2: 3, 3: 1},
+        #     service_action_floors={
+        #         1: { 'min_clients': 2, 'min_frequency': 1.5e9, 'min_bandwidth': 15e6, 'min_quantization': 8 },
+        #         2: { 'min_clients': 2, 'min_frequency': 1.2e9, 'min_bandwidth': 10e6, 'min_quantization': 6 },
+        #         3: { 'min_clients': 1, 'min_frequency': 1.0e9, 'min_bandwidth': 5e6,  'min_quantization': 4 }
+        #     }
         # )
+
         
         # 创建PAC训练器
         self.pac_trainer = PACMCoFLTrainer(
@@ -633,12 +648,28 @@ class PaperExperimentRunner:
             # 4. 设置PAC环境
             self.setup_pac_environment()
             
-            # 5. 先运行一次真实的联邦学习基线训练，确保模型权重发生更新
-            # baseline_rounds = getattr(self.config, 'baseline_fl_rounds', 3)
-            # print(f"\n🔄 先进行基线联邦训练 (每个服务 {baseline_rounds} 轮，禁用量化)...")
-            # baseline_fl_training = self.fl_system.train_all_services(num_rounds=baseline_rounds)
+            # 5. 先运行一次真实的联邦学习基线训练(预热)，确保模型权重发生有效更新
+            # baseline_plan = {1: 5, 2: 3, 3: 1}
+            # print(f"\n🔄 先进行基线联邦训练(预热): {baseline_plan} 轮，禁用量化评估干扰...")
+            # saved_epochs = {}
+            # for sid, trainer in self.fl_system.service_trainers.items():
+            #     if hasattr(trainer, 'cfg'):
+            #         saved_epochs[sid] = getattr(trainer.cfg, 'epochs', 1)
+            #         trainer.cfg.epochs = max(3, saved_epochs[sid])
+            # baseline_fl_training = {}
+            # for sid, rounds in baseline_plan.items():
+            #     try:
+            #         self.fl_system.train_service(sid, num_rounds=rounds, enable_metrics=False)
+            #         baseline_fl_training[sid] = (self.fl_system.service_models[sid], {'rounds': rounds})
+            #     except Exception as e:
+            #         print(f"[WARN] 基线预热失败 - 服务{sid}: {e}")
+            # for sid, trainer in self.fl_system.service_trainers.items():
+            #     try:
+            #         if hasattr(trainer, 'cfg') and sid in saved_epochs:
+            #             trainer.cfg.epochs = saved_epochs[sid]
+            #     except Exception:
+            #         pass
 
-            # 如果未运行基线训练，提供一个空的占位结果以避免未定义错误
             baseline_fl_training = {}
 
             # 6. 运行PAC-MCoFL训练

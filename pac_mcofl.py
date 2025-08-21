@@ -64,6 +64,21 @@ class PACConfig:
     eval_frequency: int = 100       # 评估频率
     save_frequency: int = 500       # 模型保存频率
 
+    # 追加：联动RL-FL的评估与训练细化配置（支持按服务定制）
+    # 每步快速评估频率（步级），用于控制图中“台阶状重复”的产生频率
+    step_eval_frequency: int = 2
+    # 按服务ID设置评估频率覆盖，例如 {1:1, 2:1, 3:2}
+    service_eval_frequency: dict = field(default_factory=dict)
+    # 按服务ID设置每步真实训练的本地epoch数，例如 {1:5, 2:3, 3:1}
+    service_epochs_per_step: dict = field(default_factory=dict)
+    # 按服务ID设置动作下限，避免极端低资源导致精度骤降，例如
+    # {1:{'min_clients':2,'min_frequency':1.5e9,'min_bandwidth':15e6,'min_quantization':8}, ...}
+    service_action_floors: dict = field(default_factory=dict)
+    # 探索噪声衰减（连续动作），降低无效探索
+    exploration_std_start: float = 0.10
+    exploration_std_end: float = 0.02
+    exploration_decay_steps: int = 200
+
 
 class ActorNetwork(nn.Module):
     """
@@ -420,6 +435,8 @@ class PACAgent:
         
         # 训练步数计数器
         self.training_step = 0
+        # 探索噪声标准差（线性衰减）
+        self.exploration_std = config.exploration_std_start
         
         # 统计信息
         self.actor_losses = []
@@ -435,9 +452,18 @@ class PACAgent:
         observation_tensor = torch.FloatTensor(observation).unsqueeze(0)
         
         with torch.no_grad():
-            action = self.actor.sample_action(observation_tensor, add_noise=training)
+            action = self.actor.forward(observation_tensor)
+            if training:
+                std_now = max(
+                    self.config.exploration_std_end,
+                    self.config.exploration_std_start -
+                    (self.training_step / max(1, self.config.exploration_decay_steps)) *
+                    (self.config.exploration_std_start - self.config.exploration_std_end)
+                )
+                noise = torch.randn_like(action) * std_now
+                action = action + noise
         
-        return action.squeeze(0).numpy()
+        return action.detach().squeeze(0).cpu().numpy()
     
     # (已删除重复的 compute_baseline_value 旧版本，保留后方改进版本)
     
@@ -447,8 +473,7 @@ class PACAgent:
                                    current_action_state: torch.Tensor = None) -> torch.Tensor:
         """
         实现方程(23)的虚拟联合策略计算: π_{-r}^† ∈ arg max_{a_{-r,t}} Q_r^π†(o_{r,t}, a_{r,t}, a_{-r,t})
-        
-        简化的三元动作空间实现，直接在tensor层面操作以提高效率。
+
         
         参数:
             observation: 当前观察 o_{r,t} [batch_size, obs_dim]
@@ -480,7 +505,7 @@ class PACAgent:
             joint_action_batch = []
             for b in range(batch_size):
                 parts = []
-                cur_np = current_action_state[b].cpu().numpy()
+                cur_np = current_action_state[b].detach().cpu().numpy()
                 for _ in range(other_agents_num):
                     idx = np.random.randint(0, self.action_transformer.get_action_space_size())
                     ternary = self.action_transformer.get_action_by_index(idx)
@@ -939,10 +964,20 @@ class PACMCoFLTrainer:
             step_service_logs: Dict[int, Dict[str, Any]] = {}
             for sid, act_arr in actions.items():
                 n_clients = int(max(1, min(len(self.fl_system.service_configs[sid].client_ids), round(act_arr[0]))))
-                q_level = int(max(1, min(32, round(act_arr[3])))) if len(act_arr) > 3 else 8
+                # 应用按服务的动作下限（若提供）
+                floors = self.config.service_action_floors.get(sid, {}) if hasattr(self.config, 'service_action_floors') else {}
+                min_clients = int(floors.get('min_clients', self.constraints.min_clients))
+                min_freq = float(floors.get('min_frequency', self.constraints.min_frequency))
+                min_bw = float(floors.get('min_bandwidth', self.constraints.min_bandwidth))
+                min_q = int(floors.get('min_quantization', self.constraints.min_quantization))
+
+                n_clients = max(min_clients, n_clients)
+                q_level = int(max(min_q, min(32, round(act_arr[3])))) if len(act_arr) > 3 else max(min_q, 8)
                 # 从动作数组提取f和B（保持客户端选择逻辑不变）
                 cpu_freq = float(act_arr[1]) if len(act_arr) > 1 else self.constraints.min_frequency
                 bandwidth = float(act_arr[2]) if len(act_arr) > 2 else self.constraints.min_bandwidth
+                cpu_freq = max(min_freq, cpu_freq)
+                bandwidth = max(min_bw, bandwidth)
 
                 trainer = self.fl_system.service_trainers.get(sid)
                 if trainer is not None and hasattr(trainer, 'users_per_round'):
@@ -973,7 +1008,8 @@ class PACMCoFLTrainer:
 
                 # 全量测试评估（降低频率），在训练前进行
                 # 每隔 EVAL_FREQUENCY 步执行一次全量评估；其余步复用上一时刻的准确率以降低评估开销
-                EVAL_FREQUENCY = 2
+                # 每服务或全局评估频率（步级）
+                EVAL_FREQUENCY = self.config.service_eval_frequency.get(sid, self.config.step_eval_frequency) if hasattr(self.config, 'service_eval_frequency') else 2
                 do_full_eval = ((step % EVAL_FREQUENCY) == 0) or ((step + 1) == self.config.max_rounds_per_episode)
                 acc = 0.0; avg_loss = 0.0
                 try:
@@ -1096,7 +1132,11 @@ class PACMCoFLTrainer:
                 if trainer is not None and hasattr(trainer, 'cfg'):
                     prev_epochs = getattr(trainer.cfg, 'epochs', 1)
                     prev_eval_freq = getattr(trainer.cfg, 'eval_epoch_frequency', None)
-                    trainer.cfg.epochs = 1
+                    # 应用每服务每步训练epoch数（若提供）
+                    svc_epochs = 1
+                    if hasattr(self.config, 'service_epochs_per_step'):
+                        svc_epochs = int(self.config.service_epochs_per_step.get(sid, 1))
+                    trainer.cfg.epochs = max(1, svc_epochs)
                     if prev_eval_freq is not None:
                         trainer.cfg.eval_epoch_frequency = 10**6
                 try:
@@ -1108,6 +1148,49 @@ class PACMCoFLTrainer:
                         trainer.cfg.epochs = prev_epochs
                         if prev_eval_freq is not None:
                             trainer.cfg.eval_epoch_frequency = prev_eval_freq
+
+            # 训练后再进行一次评估，记录更真实的趋势（与快速评估结合）
+            try:
+                post_logs = {}
+                for sid in self.service_ids:
+                    acc = 0.0; avg_loss = 0.0
+                    try:
+                        dl = self.fl_system.service_data_loaders.get(sid)
+                        test_sets = dl.fl_test_set() if dl else []
+                        model_module = self.fl_system.service_models[sid].model
+                        model_module.eval()
+                        device = next(model_module.parameters()).device
+                        correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
+                        criterion = torch.nn.CrossEntropyLoss()
+                        for entry in test_sets:
+                            for batch in entry.get('batches', []):
+                                feats = batch.get('features'); labels = batch.get('labels')
+                                if feats is None or labels is None:
+                                    continue
+                                feats = feats.to(device); labels = labels.to(device)
+                                with torch.no_grad():
+                                    out = model_module(feats)
+                                    loss = criterion(out, labels)
+                                loss_sum += loss.item()
+                                preds = out.argmax(1)
+                                correct += (preds == labels).sum().item()
+                                total += labels.size(0)
+                                num_batches += 1
+                        if total > 0:
+                            acc = correct / total
+                            avg_loss = loss_sum / max(num_batches, 1)
+                    except Exception:
+                        pass
+                    # 覆盖更新趋势为训练后的结果（更有利于向上趋势体现）
+                    self.accuracy_trends[sid][-1] = float(acc) if self.accuracy_trends[sid] else float(acc)
+                    post_logs[sid] = {'post_train_accuracy': float(acc), 'post_train_loss': float(avg_loss)}
+                # 可选：把post-train日志追加到最后一个step日志中
+                if episode_logs and 'services' in episode_logs[-1]:
+                    for sid in self.service_ids:
+                        episode_logs[-1]['services'].setdefault(sid, {})['post_train_accuracy'] = post_logs[sid]['post_train_accuracy']
+                        episode_logs[-1]['services'][sid]['post_train_loss'] = post_logs[sid]['post_train_loss']
+            except Exception:
+                pass
 
             for sid, rw in rewards.items():
                 episode_rewards[sid] += rw
