@@ -401,12 +401,13 @@ class PACAgent:
         # 统一三元动作空间：引入变换器（单一实现来源）
         self.action_transformer = ActionSpaceTransformer(self.constraints, ActionGranularity())
         
-        # 设置动作边界
+        # 设置动作边界（与环境保持一致，量化级别上限收敛到常用范围32，避免数值失真）
+        q_max_eff = min(int(constraints.max_quantization), 32)
         self.action_bounds = (
             np.array([constraints.min_clients, constraints.min_frequency, 
-                     constraints.min_bandwidth, constraints.min_quantization]),
+                     constraints.min_bandwidth, constraints.min_quantization], dtype=np.float32),
             np.array([constraints.max_clients, constraints.max_frequency,
-                     constraints.max_bandwidth, constraints.max_quantization])
+                     constraints.max_bandwidth, q_max_eff], dtype=np.float32)
         )
         
         # 初始化网络
@@ -450,7 +451,7 @@ class PACAgent:
         实现从π_r(a_{r,t} | o_{r,t})采样.
         """
         observation_tensor = torch.FloatTensor(observation).unsqueeze(0)
-        
+
         with torch.no_grad():
             action = self.actor.forward(observation_tensor)
             if training:
@@ -1197,6 +1198,10 @@ class PACMCoFLTrainer:
             episode_trajectory.append(rewards)
             observations = next_observations
             step += 1
+
+            # 每步都尝试训练（只要缓冲区够大）
+            for service_id in self.service_ids:
+                self.agents[service_id].train_step()
 
             if all(dones.values()):
                 break

@@ -22,7 +22,7 @@ import copy
 
 # 导入现有模块
 from multi_service_fl import MultiServiceFLSystem, ServiceProviderConfig, ClientResourceConfig, QuantizedFLModel
-from optimization_problem import OptimizationConstraints, MultiObjectiveCostFunction
+from optimization_problem import OptimizationConstraints
 from mdp_framework import MultiServiceFLEnvironment, Action, Observation
 from pac_mcofl import PACMCoFLTrainer, PACConfig
 from quantization import QuantizationModule
@@ -565,7 +565,7 @@ class PaperExperimentRunner:
         
         # 创建PAC配置（基于论文PAC算法参数）
         pac_config = PACConfig(
-            num_episodes=4,  # 调试联动：先跑少量episode验证
+            num_episodes=2,  # 调试联动：先跑少量episode验证
             max_rounds_per_episode=15,  # 减少每episode轮数以加速
             buffer_size=2000,
             batch_size=8,
@@ -675,6 +675,26 @@ class PaperExperimentRunner:
             # 6. 运行PAC-MCoFL训练
             print(f"\n🔄 开始PAC-MCoFL训练...")
             training_results = self.pac_trainer.train()
+            # 训练完成后立即持久化一次原始训练结果快照，便于排查奖励直线问题
+            try:
+                snapshot_path = self.output_dir / f"training_results_snapshot_{time.strftime('%Y%m%d_%H%M%S')}.json"
+                with open(snapshot_path, 'w', encoding='utf-8') as sf:
+                    import json as _json
+                    def _to_serializable(o):
+                        import numpy as _np
+                        if isinstance(o, _np.ndarray):
+                            return o.tolist()
+                        if isinstance(o, (float, int, str, bool)) or o is None:
+                            return o
+                        if isinstance(o, dict):
+                            return {k: _to_serializable(v) for k, v in o.items()}
+                        if isinstance(o, list):
+                            return [_to_serializable(x) for x in o]
+                        return str(o)
+                    _json.dump(_to_serializable(training_results), sf, ensure_ascii=False, indent=2)
+                print(f"💾  已保存训练快照: {snapshot_path}")
+            except Exception as e:
+                print(f"[WARN] 保存训练快照失败: {e}")
             
             # 7. 评估训练结果（RL层面）
             print(f"\n🔄 评估训练结果...")
@@ -938,6 +958,36 @@ class PaperExperimentRunner:
                 fig_r.savefig(reward_fig_path)
                 plt.close(fig_r)
                 print(f"🖼️  奖励趋势图已保存: {reward_fig_path}")
+
+            # 新增：绘制按步奖励趋势（将每个episode的逐步奖励拼接）
+            step_logs = tr.get('action_logs', [])
+            if step_logs:
+                # step_logs: List[episode] -> episode: List[{step, services:{sid:{reward,...}}}]
+                per_service_step_rewards = {}
+                for ep in step_logs:
+                    for entry in ep:
+                        if not isinstance(entry, dict) or 'services' not in entry:
+                            continue
+                        for sid, sdict in entry['services'].items():
+                            try:
+                                sid_int = int(sid)
+                            except Exception:
+                                sid_int = sid
+                            per_service_step_rewards.setdefault(sid_int, []).append(float(sdict.get('reward', 0.0)))
+                if per_service_step_rewards:
+                    fig_sr, ax_sr = plt.subplots(figsize=(9, 4))
+                    for sid, series in per_service_step_rewards.items():
+                        ax_sr.plot(range(1, len(series) + 1), series, label=f'Service {sid}', alpha=0.9)
+                    ax_sr.set_xlabel('RL steps (concatenated across episodes)')
+                    ax_sr.set_ylabel('Reward (per step)')
+                    ax_sr.set_title('Per-step Reward Trend')
+                    ax_sr.legend()
+                    ax_sr.grid(True, alpha=0.3)
+                    fig_sr.tight_layout()
+                    step_reward_fig_path = self.output_dir / f"rl_step_reward_trends_{timestamp}.png"
+                    fig_sr.savefig(step_reward_fig_path)
+                    plt.close(fig_sr)
+                    print(f"🖼️  按步奖励趋势图已保存: {step_reward_fig_path}")
 
             # 可选：绘制累积期望奖励的变化
             cumulative_rewards = tr.get('cumulative_rewards', {})

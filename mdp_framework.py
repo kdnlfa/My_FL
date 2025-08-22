@@ -26,12 +26,12 @@ from collections import deque
 import copy
 
 try:
-    from .optimization_problem import DecisionVariables, OptimizationConstraints
+    from .optimization_problem import OptimizationConstraints
     from .communication import SystemMetrics, ClientMetrics
     from .quantization import QuantizationModule
 except ImportError:
     # 对于直接执行，使用绝对导入
-    from optimization_problem import DecisionVariables, OptimizationConstraints
+    from optimization_problem import OptimizationConstraints
     from communication import SystemMetrics, ClientMetrics
     from quantization import QuantizationModule
 
@@ -181,14 +181,6 @@ class Action:
             quantization_level=int(np.clip(array[3], constraints.min_quantization, constraints.max_quantization))
         )
 
-    def to_decision_variables(self) -> DecisionVariables:
-        """转换为优化决策变量."""
-        return DecisionVariables(
-            n_r_t=self.n_clients,
-            f_r_t=self.cpu_frequency,
-            B_r_t=self.bandwidth,
-            q_r_t=self.quantization_level
-        )
 
 
 class AdversarialFactor:
@@ -263,7 +255,8 @@ class RewardFunction:
                  sigma_1: float = 100.0,   # 准确率权重（论文默认值）
                  sigma_2: float = 4.8,     # 对抗因子权重（论文r1默认值）
                  sigma_3: float = 0.8,     # 能量惩罚权重（论文r1默认值）
-                 sigma_4: float = 0.8):    # 延迟惩罚权重（论文r1默认值）
+                 sigma_4: float = 0.8,     # 延迟惩罚权重（论文r1默认值）
+                 constraints: Optional[OptimizationConstraints] = None):
         """
         初始化奖励函数，使用论文参数表中的权重.
         
@@ -277,13 +270,15 @@ class RewardFunction:
         self.sigma_2 = sigma_2
         self.sigma_3 = sigma_3
         self.sigma_4 = sigma_4
+        # 奖励中的能耗/时延采用“基于约束的归一化”，避免数量级失衡
+        self.constraints = constraints
         
         self.adversarial_factor = AdversarialFactor()
         
-        print(f"🎯 奖励函数初始化 - σ₁={sigma_1}, σ₂={sigma_2}, σ₃={sigma_3}, σ₄={sigma_4}")
+        print(f"🎯 奖励函数初始化 - σ₁={sigma_1}, σ₂={sigma_2}, σ₃={sigma_3}, σ₄={sigma_4} | 归一化: {'constraints' if constraints else 'none'}")
     
     @classmethod
-    def create_for_service(cls, service_id: int) -> 'RewardFunction':
+    def create_for_service(cls, service_id: int, constraints: Optional[OptimizationConstraints] = None) -> 'RewardFunction':
         """
         为特定服务创建奖励函数，使用论文中对应的权重因子.
         
@@ -309,7 +304,8 @@ class RewardFunction:
             sigma_1=sigma_1_values[idx],
             sigma_2=sigma_2_values[idx],
             sigma_3=sigma_3_values[idx],
-            sigma_4=sigma_4_values[idx]
+            sigma_4=sigma_4_values[idx],
+            constraints=constraints
         )
     
     def calculate(self,
@@ -341,9 +337,20 @@ class RewardFunction:
             service_id, all_actions, communication_volumes
         )
         
-        # 将能量和延迟标准化到合理的尺度
-        normalized_energy = total_energy * 1e6  # 转换为μJ
-        normalized_delay = total_delay * 1e3    # 转换为ms
+        # 将能量与时延按系统约束进行归一化，避免数量级爆炸
+        if self.constraints is not None:
+            max_e = max(1e-12, float(self.constraints.max_energy))
+            max_t = max(1e-12, float(self.constraints.max_delay))
+            normalized_energy = total_energy / max_e
+            normalized_delay = total_delay / max_t
+        else:
+            # 回退：不做单位放大，直接使用物理量（J与s），建议传入constraints
+            normalized_energy = total_energy
+            normalized_delay = total_delay
+
+        # 稳健性：裁剪到[0, 2]范围内，避免异常值主导训练；适度放宽上界以保留波动
+        normalized_energy = float(np.clip(normalized_energy, 0.0, 2.0))
+        normalized_delay = float(np.clip(normalized_delay, 0.0, 2.0))
         
         # 计算奖励 - 公式(17): rwd_{r,t} = σ₁Γ_{r,t} + σ₂Φ_{r,t}(q) - σ₃E_{r,t}^total - σ₄T_{r,t}^total
         reward = (self.sigma_1 * accuracy +
@@ -389,8 +396,8 @@ class MultiServiceFLEnvironment:
         # 为每个服务初始化奖励函数（按照论文参数表）
         self.reward_functions = {}
         for service_id in service_ids:
-            # 使用论文中特定服务的权重因子
-            self.reward_functions[service_id] = RewardFunction.create_for_service(service_id)
+            # 使用论文中特定服务的权重因子，并注入约束用于归一化
+            self.reward_functions[service_id] = RewardFunction.create_for_service(service_id, constraints=self.constraints)
             
             # 如果提供了自定义权重，则覆盖
             if reward_weights:
@@ -399,7 +406,8 @@ class MultiServiceFLEnvironment:
                     sigma_1=custom_weights.get('sigma_1', 100.0),
                     sigma_2=custom_weights.get('sigma_2', 4.8),
                     sigma_3=custom_weights.get('sigma_3', 0.8),
-                    sigma_4=custom_weights.get('sigma_4', 0.8)
+                    sigma_4=custom_weights.get('sigma_4', 0.8),
+                    constraints=self.constraints
                 )
         
         # 定义观察和动作空间
@@ -658,7 +666,9 @@ class MultiServiceFLEnvironment:
             accuracy_improvement = (
                 0.01 * np.log(max(1, action.n_clients)) +
                 0.005 * np.log(max(1, action.quantization_level)) +
-                np.random.normal(0, 0.01)  # 随机改进
+                0.002 * np.log(max(1e-6, action.cpu_frequency / 1e9)) +      # 频率影响（GHz对数）
+                0.002 * np.log(1.0 + action.bandwidth / 1e6) +               # 带宽影响（MHz对数）
+                np.random.normal(0, 0.02)  # 略增噪声以体现探索波动
             )
             
             new_accuracy = min(1.0, current_obs.fl_state.accuracy + accuracy_improvement)
@@ -666,7 +676,8 @@ class MultiServiceFLEnvironment:
             
             # 使用量化模块计算通信量，实现公式(7)
             model_size = 50000 + service_id * 10000  # 不同模型大小
-            bits_per_param = max(1, np.ceil(np.log2(action.quantization_level)) + 1)
+            # 通信位宽上限限制为8bit，避免过大位宽导致能耗/时延失真
+            bits_per_param = int(min(8, max(1, np.ceil(np.log2(action.quantization_level)) + 1)))
             comm_volume = model_size * bits_per_param + 32
             communication_volumes[service_id] = comm_volume
             
