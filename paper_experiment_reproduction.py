@@ -648,31 +648,10 @@ class PaperExperimentRunner:
             # 4. 设置PAC环境
             self.setup_pac_environment()
             
-            # 5. 先运行一次真实的联邦学习基线训练(预热)，确保模型权重发生有效更新
-            # baseline_plan = {1: 5, 2: 3, 3: 1}
-            # print(f"\n🔄 先进行基线联邦训练(预热): {baseline_plan} 轮，禁用量化评估干扰...")
-            # saved_epochs = {}
-            # for sid, trainer in self.fl_system.service_trainers.items():
-            #     if hasattr(trainer, 'cfg'):
-            #         saved_epochs[sid] = getattr(trainer.cfg, 'epochs', 1)
-            #         trainer.cfg.epochs = max(3, saved_epochs[sid])
-            # baseline_fl_training = {}
-            # for sid, rounds in baseline_plan.items():
-            #     try:
-            #         self.fl_system.train_service(sid, num_rounds=rounds, enable_metrics=False)
-            #         baseline_fl_training[sid] = (self.fl_system.service_models[sid], {'rounds': rounds})
-            #     except Exception as e:
-            #         print(f"[WARN] 基线预热失败 - 服务{sid}: {e}")
-            # for sid, trainer in self.fl_system.service_trainers.items():
-            #     try:
-            #         if hasattr(trainer, 'cfg') and sid in saved_epochs:
-            #             trainer.cfg.epochs = saved_epochs[sid]
-            #     except Exception:
-            #         pass
 
             baseline_fl_training = {}
 
-            # 6. 运行PAC-MCoFL训练
+            # 5. 运行PAC-MCoFL训练
             print(f"\n🔄 开始PAC-MCoFL训练...")
             training_results = self.pac_trainer.train()
             # 训练完成后立即持久化一次原始训练结果快照，便于排查奖励直线问题
@@ -696,18 +675,18 @@ class PaperExperimentRunner:
             except Exception as e:
                 print(f"[WARN] 保存训练快照失败: {e}")
             
-            # 7. 评估训练结果（RL层面）
+            # 6. 评估训练结果（RL层面）
             print(f"\n🔄 评估训练结果...")
             evaluation_results = self.pac_trainer.evaluate(num_episodes=10)
             
-            # 8. 获取训练总结
+            # 7. 获取训练总结
             training_summary = self.pac_trainer.get_training_summary()
             
-            # 9. 评估联邦学习模型性能（真实模型）
+            # 8. 评估联邦学习模型性能（真实模型）
             print(f"\n🔄 评估联邦学习模型性能...")
             model_performance = self.evaluate_model_performance()
             
-            # 10. 编译实验结果
+            # 9. 编译实验结果
             end_time = time.time()
             
             self.experiment_results = {
@@ -742,7 +721,7 @@ class PaperExperimentRunner:
                 'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
             }
             
-            # 9. 保存实验结果
+            # 10. 保存实验结果
             self.save_results()
             
             print(f"\n✅ 论文实验复现完成！")

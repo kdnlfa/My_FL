@@ -181,37 +181,3 @@ class AdaptiveQuantization:
             parameters, self.current_q
         )
         return quantized_params, norm_value, self.current_q
-
-
-def test_quantization():
-    """量化模块的测试函数。"""
-    print("测试量化模块...")
-    
-    # 创建测试参数
-    params = torch.randn(100, 50)  # 5000个参数
-    q = 8  # 8级量化
-    
-    quantizer = QuantizationModule()
-    
-    # 测试量化
-    quantized_params, norm_value = quantizer.quantize_parameters(params, q)
-    
-    # 计算通信量
-    param_size = params.numel()
-    volume = quantizer.calculate_communication_volume(param_size, q)
-    compression_ratio = quantizer.get_compression_ratio(param_size, q)
-    
-    print(f"原始参数形状: {params.shape}")
-    print(f"量化级别: {q}")
-    print(f"范数值: {norm_value:.4f}")
-    print(f"通信量: {volume} 比特")
-    print(f"压缩比: {compression_ratio:.2f}倍")
-    
-    # 测试自适应量化
-    adaptive_q = AdaptiveQuantization(initial_q=4)
-    quantized_adaptive, norm_adaptive, q_level = adaptive_q.quantize(params)
-    print(f"自适应量化级别: {q_level}")
-
-
-if __name__ == "__main__":
-    test_quantization()

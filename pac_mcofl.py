@@ -168,54 +168,6 @@ class ActorNetwork(nn.Module):
             action = min_bounds + 0.5 * (action + 1) * (max_bounds - min_bounds)
         
         return action
-    
-    def get_action_log_prob(self, observation: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        """
-        获取给定观察下动作的对数概率.
-        
-        这用于方程(25)中的策略梯度计算.
-        """
-        # 对于连续动作，我们假设高斯策略
-        # 实际中，您可能想要使用更复杂的分布
-        
-        mean_action = self.forward(observation)
-        
-        # 为简单起见，假设固定标准差
-        std = torch.ones_like(mean_action) * 0.1
-        
-        # 计算对数概率
-        log_prob = -0.5 * torch.sum(((action - mean_action) / std) ** 2 + 2 * torch.log(std), dim=-1)
-        
-        return log_prob
-    
-    def sample_action(self, observation: torch.Tensor, add_noise: bool = True) -> torch.Tensor:
-        """
-        从策略中采样动作.
-        
-        参数:
-            observation: 输入观察
-            add_noise: 是否添加探索噪声
-            
-        返回:
-            采样的动作
-        """
-        mean_action = self.forward(observation)
-        
-        if add_noise:
-            # 添加高斯噪声进行探索
-            noise = torch.randn_like(mean_action) * 0.1
-            action = mean_action + noise
-        else:
-            action = mean_action
-        
-        # 裁剪到动作边界
-        if self.action_bounds is not None:
-            min_bounds, max_bounds = self.action_bounds
-            min_bounds = torch.tensor(min_bounds, dtype=torch.float32, device=action.device)
-            max_bounds = torch.tensor(max_bounds, dtype=torch.float32, device=action.device)
-            action = torch.clamp(action, min_bounds, max_bounds)
-        
-        return action
 
 
 class CriticNetwork(nn.Module):
@@ -436,8 +388,6 @@ class PACAgent:
         
         # 训练步数计数器
         self.training_step = 0
-        # 探索噪声标准差（线性衰减）
-        self.exploration_std = config.exploration_std_start
         
         # 统计信息
         self.actor_losses = []
@@ -614,12 +564,28 @@ class PACAgent:
         critic_loss.backward()
         
         # 梯度裁剪防止梯度爆炸
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+        critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         
         self.critic_optimizer.step()
         
         # 记录Q值统计
         self.q_values.append(float(torch.mean(current_q).item()))
+        self.critic_losses.append(float(critic_loss.item()))
+
+        # 输出关键信息，便于观察critic更新动态
+        try:
+            current_q_mean = float(current_q.mean().item())
+            target_q_mean = float(target_q.mean().item())
+            td_mean = float(td_error.mean().item())
+            td_std = float(td_error.std().item()) if td_error.numel() > 1 else 0.0
+            print(
+                f"[PAC][Agent {self.agent_id}] CriticUpdate: "
+                f"loss={critic_loss.item():.6f}, "
+                f"Qcur={current_q_mean:.5f}, Qtgt={target_q_mean:.5f}, "
+                f"TD={td_mean:.5f}±{td_std:.5f}, grad_norm={float(critic_grad_norm):.4f}"
+            )
+        except Exception:
+            pass
         
         return float(critic_loss.item())
     
@@ -673,9 +639,25 @@ class PACAgent:
         actor_loss.backward()
         
         # 梯度裁剪
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+        actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         
         self.actor_optimizer.step()
+        self.actor_losses.append(float(actor_loss.item()))
+        
+        # 输出关键信息，便于观察actor更新动态
+        try:
+            adv_mean = float(advantages.mean().item())
+            adv_std = float(advantages.std().item()) if advantages.numel() > 1 else 0.0
+            logp_mean = float(log_probs.mean().item())
+            act_mean = float(current_actions.mean().item())
+            act_std = float(current_actions.std().item()) if current_actions.numel() > 1 else 0.0
+            print(
+                f"[PAC][Agent {self.agent_id}] ActorUpdate: "
+                f"loss={actor_loss.item():.6f}, adv={adv_mean:.5f}±{adv_std:.5f}, "
+                f"logp={logp_mean:.5f}, a={act_mean:.4f}±{act_std:.4f}, grad_norm={float(actor_grad_norm):.4f}"
+            )
+        except Exception:
+            pass
         
         return float(actor_loss.item())
     
@@ -735,32 +717,6 @@ class PACAgent:
             'q_value': self.q_values[-1] if self.q_values else 0.0,
             'buffer_size': len(self.replay_buffer)
         }
-    
-    def save_models(self, filepath_prefix: str):
-        """保存演员和评论家模型."""
-        
-        torch.save({
-            'actor_state_dict': self.actor.state_dict(),
-            'critic_state_dict': self.critic.state_dict(),
-            'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
-            'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
-            'training_step': self.training_step
-        }, f"{filepath_prefix}_agent_{self.agent_id}.pt")
-    
-    def load_models(self, filepath_prefix: str):
-        """加载演员和评论家模型."""
-        
-        checkpoint = torch.load(f"{filepath_prefix}_agent_{self.agent_id}.pt")
-        
-        self.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.critic.load_state_dict(checkpoint['critic_state_dict'])
-        self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
-        self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
-        self.training_step = checkpoint['training_step']
-        
-        # 更新目标网络
-        self.actor_target.load_state_dict(self.actor.state_dict())
-        self.critic_target.load_state_dict(self.critic.state_dict())
 
 
 class PACMCoFLTrainer:
@@ -868,58 +824,11 @@ class PACMCoFLTrainer:
         step = 0
         # 本回合逐步日志
         episode_logs: List[Dict[str, Any]] = []
-        
-        # 在任何训练发生前，进行一次未训练评估并记录(step=0)
-        try:
-            initial_step_logs: Dict[int, Dict[str, Any]] = {}
-            for sid in self.service_ids:
-                acc = 0.0; avg_loss = 0.0
-                try:
-                    dl = self.fl_system.service_data_loaders.get(sid)
-                    test_sets = dl.fl_test_set() if dl else []
-                    model_module = self.fl_system.service_models[sid].model
-                    model_module.eval()
-                    device = next(model_module.parameters()).device
-                    correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
-                    criterion = torch.nn.CrossEntropyLoss()
-                    for entry in test_sets:
-                        for batch in entry.get('batches', []):
-                            feats = batch.get('features'); labels = batch.get('labels')
-                            if feats is None or labels is None:
-                                continue
-                            feats = feats.to(device); labels = labels.to(device)
-                            with torch.no_grad():
-                                out = model_module(feats)
-                                loss = criterion(out, labels)
-                            loss_sum += loss.item()
-                            preds = out.argmax(1)
-                            correct += (preds == labels).sum().item()
-                            total += labels.size(0)
-                            num_batches += 1
-                    if total > 0:
-                        acc = correct / total
-                        avg_loss = loss_sum / max(num_batches, 1)
-                except Exception as e:
-                    try:
-                        print(f"[WARN][RL-FL Link] 初始未训练评估失败(服务{sid}): {e}")
-                    except Exception:
-                        pass
-                # 记录日志与趋势
-                initial_step_logs[sid] = {
-                    'accuracy': float(acc),
-                    'loss': float(avg_loss),
-                    'q_level': int(getattr(self.fl_system.service_models.get(sid, None), 'quantization_level', 0)) if self.fl_system and sid in self.fl_system.service_models else 0
-                }
-                self.accuracy_trends[sid].append(float(acc))
-            episode_logs.append({'step': 0, 'services': initial_step_logs})
-        except Exception:
-            pass
 
         # 算法1步骤20: 创建回合批次存储经验
         episode_batch = []
         
         # 步骤4: 对于每轮t = 0, 1, ..., T-1
-        # for each round t = 0, 1, ..., T-1 do
         while step < self.config.max_rounds_per_episode:
             current_obs = {sid: observations[sid] for sid in self.service_ids}
 
@@ -945,14 +854,9 @@ class PACMCoFLTrainer:
                     arr = np.array(arr, dtype=float) if not isinstance(arr, np.ndarray) else arr
                     action_objects[sid] = Action.from_array(arr)
 
-            # 使用环境的仿真路径一次性计算系统代价（能耗/时延）与通信量
-            # 注意：此处不更新环境内部状态，仅用于奖励计算的数据来源
-            try:
-                sim_new_observations, sim_communication_volumes = self.environment._simulate_fl_round(action_objects)
-            except Exception:
-                # 若仿真失败，则构造空占位，奖励将退化为仅基于精度
-                sim_new_observations = {sid: self.environment.observations[sid] for sid in self.service_ids}
-                sim_communication_volumes = {}
+            # 将在执行真实单轮训练后，基于真实评估与通信/能耗/时延计算奖励
+            real_comm_volumes: Dict[int, int] = {}
+            real_obs_map: Dict[int, Any] = {}
 
             # 打印当前RL步的概览
             try:
@@ -960,7 +864,7 @@ class PACMCoFLTrainer:
             except Exception:
                 pass
 
-            # 评估(训练前) + 奖励计算，然后再进行真实训练
+            # 执行真实训练后再评估并计算奖励（紧耦合）
             # 当前步各服务日志容器
             step_service_logs: Dict[int, Dict[str, Any]] = {}
             for sid, act_arr in actions.items():
@@ -1007,68 +911,82 @@ class PACMCoFLTrainer:
                     if hasattr(fl_model, 'quantization_level'):
                         fl_model.quantization_level = q_level
 
-                # 全量测试评估（降低频率），在训练前进行
-                # 每隔 EVAL_FREQUENCY 步执行一次全量评估；其余步复用上一时刻的准确率以降低评估开销
-                # 每服务或全局评估频率（步级）
-                EVAL_FREQUENCY = self.config.service_eval_frequency.get(sid, self.config.step_eval_frequency) if hasattr(self.config, 'service_eval_frequency') else 2
-                do_full_eval = ((step % EVAL_FREQUENCY) == 0) or ((step + 1) == self.config.max_rounds_per_episode)
+                # 真实训练（单轮），并统计真实通信/能耗/时延
+                prev_epochs = 1
+                prev_eval_freq = None
+                if trainer is not None and hasattr(trainer, 'cfg'):
+                    prev_epochs = getattr(trainer.cfg, 'epochs', 1)
+                    prev_eval_freq = getattr(trainer.cfg, 'eval_epoch_frequency', None)
+                    # 应用每服务每步训练epoch数（若提供）
+                    svc_epochs = 1
+                    if hasattr(self.config, 'service_epochs_per_step'):
+                        svc_epochs = int(self.config.service_epochs_per_step.get(sid, 1))
+                    trainer.cfg.epochs = max(1, svc_epochs)
+                    if prev_eval_freq is not None:
+                        trainer.cfg.eval_epoch_frequency = 10**6
+
+                metrics_summary = {}
+                try:
+                    _, metrics_summary = self.fl_system.train_service(sid, num_rounds=1, enable_metrics=True)
+                except Exception as e:
+                    print(f"[WARN][RL-FL Link] 服务{sid} 真实训练失败: {e}")
+                    metrics_summary = {}
+                finally:
+                    if trainer is not None and hasattr(trainer, 'cfg'):
+                        trainer.cfg.epochs = prev_epochs
+                        if prev_eval_freq is not None:
+                            trainer.cfg.eval_epoch_frequency = prev_eval_freq
+
+                # 训练后评估准确率/损失
                 acc = 0.0; avg_loss = 0.0
                 try:
+                    dl = self.fl_system.service_data_loaders.get(sid)
+                    test_sets = dl.fl_test_set() if dl else []
                     model_module = self.fl_system.service_models[sid].model
                     model_module.eval()
                     device = next(model_module.parameters()).device
-                    if do_full_eval:
-                        dl = self.fl_system.service_data_loaders.get(sid)
-                        test_sets = dl.fl_test_set() if dl else []
-                        correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
-                        criterion = torch.nn.CrossEntropyLoss()
-                        for entry in test_sets:
-                            for batch in entry.get('batches', []):
-                                feats = batch.get('features'); labels = batch.get('labels')
-                                if feats is None or labels is None:
-                                    continue
-                                feats = feats.to(device); labels = labels.to(device)
-                                with torch.no_grad():
-                                    out = model_module(feats)
-                                    loss = criterion(out, labels)
-                                loss_sum += loss.item()
-                                preds = out.argmax(1)
-                                correct += (preds == labels).sum().item()
-                                total += labels.size(0)
-                                num_batches += 1
-                        if total > 0:
-                            acc = correct / total
-                            avg_loss = loss_sum / max(num_batches, 1)
-                    else:
-                        # 复用上一时刻的准确率，避免额外评估开销
-                        prev_acc_list = self.accuracy_trends.get(sid, [])
-                        acc = float(prev_acc_list[-1]) if isinstance(prev_acc_list, list) and len(prev_acc_list) > 0 else 0.0
-                        avg_loss = 0.0
-                except Exception as e:
-                    print(f"[WARN][RL-FL Link] 全量测试评估失败: {e}")
+                    correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
+                    criterion = torch.nn.CrossEntropyLoss()
+                    for entry in test_sets:
+                        for batch in entry.get('batches', []):
+                            feats = batch.get('features'); labels = batch.get('labels')
+                            if feats is None or labels is None:
+                                continue
+                            feats = feats.to(device); labels = labels.to(device)
+                            with torch.no_grad():
+                                out = model_module(feats)
+                                loss = criterion(out, labels)
+                            loss_sum += loss.item()
+                            preds = out.argmax(1)
+                            correct += (preds == labels).sum().item()
+                            total += labels.size(0)
+                            num_batches += 1
+                    if total > 0:
+                        acc = correct / total
+                        avg_loss = loss_sum / max(num_batches, 1)
+                except Exception:
+                    pass
 
-                # 更新观测并计算奖励
-                # 基于环境仿真得到的系统代价观测，再覆盖真实评测得到的精度/损失/量化级别
-                obs_obj = sim_new_observations.get(sid, self.environment.observations[sid])
+                # 更新观测（使用环境当前观测对象，覆盖为真实结果）
+                obs_obj = self.environment.observations[sid]
+                try:
+                    # 系统代价来自 metrics_summary（真实通信、能耗、时延）
+                    total_energy = float(metrics_summary.get('total_energy', 0.0))
+                    total_delay = float(metrics_summary.get('total_delay', 0.0))
+                    comm_vol = int(metrics_summary.get('communication_volume_per_round', 0))
+                except Exception:
+                    total_energy = 0.0; total_delay = 0.0; comm_vol = 0
+
                 obs_obj.fl_state.accuracy = acc
                 obs_obj.fl_state.loss = avg_loss
                 obs_obj.fl_state.quantization_level = q_level
+                obs_obj.system_state.total_energy = total_energy
+                obs_obj.system_state.total_delay = total_delay
+                obs_obj.system_state.communication_volume = comm_vol
 
-                # 使用完整参数（含通信量）计算奖励；若reward_functions缺失则回退为acc
-                if hasattr(self.environment, 'reward_functions') and sid in self.environment.reward_functions:
-                    reward_val = self.environment.reward_functions[sid].calculate(
-                        service_id=sid,
-                        observation=obs_obj,
-                        action=action_objects[sid],
-                        all_actions=action_objects,
-                        communication_volumes=sim_communication_volumes,
-                    )
-                else:
-                    reward_val = acc
-
-                rewards[sid] = reward_val
-                # 更新为numpy数组格式供强化学习使用
-                next_observations[sid] = obs_obj.to_array()
+                # 累积真实通信量供对抗因子与奖励计算
+                real_comm_volumes[sid] = comm_vol
+                real_obs_map[sid] = obs_obj
 
                 # 记录当前服务在该步的决策与结果
                 try:
@@ -1090,26 +1008,46 @@ class PACMCoFLTrainer:
                     'action': action_struct,
                     'accuracy': float(acc),
                     'loss': float(avg_loss),
-                    'reward': float(reward_val),
                     'q_level': int(q_level),
                 }
+
+            # 第二阶段：统一根据真实观测与通信量计算奖励，并构造下一观测
+            for sid in self.service_ids:
+                obs_obj = real_obs_map.get(sid, self.environment.observations[sid])
+                # 使用完整参数（含通信量）计算奖励；若reward_functions缺失则回退为acc
+                if hasattr(self.environment, 'reward_functions') and sid in self.environment.reward_functions:
+                    reward_val = self.environment.reward_functions[sid].calculate(
+                        service_id=sid,
+                        observation=obs_obj,
+                        action=action_objects[sid],
+                        all_actions=action_objects,
+                        communication_volumes=real_comm_volumes,
+                    )
+                else:
+                    reward_val = float(obs_obj.fl_state.accuracy)
+
+                rewards[sid] = reward_val
+                next_observations[sid] = obs_obj.to_array()
 
                 # 打印每个服务在该步的决策与结果摘要，便于观察参数变化
                 try:
                     action_print = action_objects[sid]
                     energy = obs_obj.system_state.total_energy
                     delay = obs_obj.system_state.total_delay
-                    comm_vol = sim_communication_volumes.get(sid, None)
+                    comm_vol = real_comm_volumes.get(sid, None)
                     print(
                         f"  [S{sid}] action="
                         f"{{n={action_print.n_clients}, f={action_print.cpu_frequency/1e9:.2f}GHz, "
                         f"B={action_print.bandwidth/1e6:.2f}MHz, q={action_print.quantization_level}}} "
                         f"metrics="
-                        f"{{acc={acc:.4f}, loss={avg_loss:.4f}, E={energy:.6e}J, T={delay:.6f}s, vol={comm_vol}}} "
+                        f"{{acc={obs_obj.fl_state.accuracy:.4f}, loss={obs_obj.fl_state.loss:.4f}, E={energy:.6e}J, T={delay:.6f}s, vol={comm_vol}}} "
                         f"reward={reward_val:.4f}"
                     )
                 except Exception:
                     pass
+
+                # 回填奖励到日志
+                step_service_logs.setdefault(sid, {})['reward'] = float(reward_val)
 
             # 存储经验（基于训练前评估的奖励）
             for sid in self.service_ids:
@@ -1125,71 +1063,10 @@ class PACMCoFLTrainer:
                 episode_batch.append((sid, exp))
                 self.agents[sid].add_experience(**exp)
 
-            # 在完成记录与经验存储后，执行单轮真实训练
-            for sid, act_arr in actions.items():
-                trainer = self.fl_system.service_trainers.get(sid)
-                prev_epochs = 1
-                prev_eval_freq = None
-                if trainer is not None and hasattr(trainer, 'cfg'):
-                    prev_epochs = getattr(trainer.cfg, 'epochs', 1)
-                    prev_eval_freq = getattr(trainer.cfg, 'eval_epoch_frequency', None)
-                    # 应用每服务每步训练epoch数（若提供）
-                    svc_epochs = 1
-                    if hasattr(self.config, 'service_epochs_per_step'):
-                        svc_epochs = int(self.config.service_epochs_per_step.get(sid, 1))
-                    trainer.cfg.epochs = max(1, svc_epochs)
-                    if prev_eval_freq is not None:
-                        trainer.cfg.eval_epoch_frequency = 10**6
-                try:
-                    self.fl_system.train_service(sid, num_rounds=1, enable_metrics=False)
-                except Exception as e:
-                    print(f"[WARN][RL-FL Link] 服务{sid} 真实训练失败: {e}")
-                finally:
-                    if trainer is not None and hasattr(trainer, 'cfg'):
-                        trainer.cfg.epochs = prev_epochs
-                        if prev_eval_freq is not None:
-                            trainer.cfg.eval_epoch_frequency = prev_eval_freq
-
-            # 训练后再进行一次评估，记录更真实的趋势（与快速评估结合）
+            # 覆盖更新趋势为训练后的结果（更有利于向上趋势体现）
             try:
-                post_logs = {}
                 for sid in self.service_ids:
-                    acc = 0.0; avg_loss = 0.0
-                    try:
-                        dl = self.fl_system.service_data_loaders.get(sid)
-                        test_sets = dl.fl_test_set() if dl else []
-                        model_module = self.fl_system.service_models[sid].model
-                        model_module.eval()
-                        device = next(model_module.parameters()).device
-                        correct = 0; total = 0; loss_sum = 0.0; num_batches = 0
-                        criterion = torch.nn.CrossEntropyLoss()
-                        for entry in test_sets:
-                            for batch in entry.get('batches', []):
-                                feats = batch.get('features'); labels = batch.get('labels')
-                                if feats is None or labels is None:
-                                    continue
-                                feats = feats.to(device); labels = labels.to(device)
-                                with torch.no_grad():
-                                    out = model_module(feats)
-                                    loss = criterion(out, labels)
-                                loss_sum += loss.item()
-                                preds = out.argmax(1)
-                                correct += (preds == labels).sum().item()
-                                total += labels.size(0)
-                                num_batches += 1
-                        if total > 0:
-                            acc = correct / total
-                            avg_loss = loss_sum / max(num_batches, 1)
-                    except Exception:
-                        pass
-                    # 覆盖更新趋势为训练后的结果（更有利于向上趋势体现）
-                    self.accuracy_trends[sid][-1] = float(acc) if self.accuracy_trends[sid] else float(acc)
-                    post_logs[sid] = {'post_train_accuracy': float(acc), 'post_train_loss': float(avg_loss)}
-                # 可选：把post-train日志追加到最后一个step日志中
-                if episode_logs and 'services' in episode_logs[-1]:
-                    for sid in self.service_ids:
-                        episode_logs[-1]['services'].setdefault(sid, {})['post_train_accuracy'] = post_logs[sid]['post_train_accuracy']
-                        episode_logs[-1]['services'][sid]['post_train_loss'] = post_logs[sid]['post_train_loss']
+                    self.accuracy_trends[sid][-1] = float(real_obs_map[sid].fl_state.accuracy) if self.accuracy_trends[sid] else float(real_obs_map[sid].fl_state.accuracy)
             except Exception:
                 pass
 
@@ -1298,10 +1175,6 @@ class PACMCoFLTrainer:
                 # 显示PAC算法的关键指标
                 print(f"   重放缓冲区大小: {[len(self.agents[sid].replay_buffer) for sid in self.service_ids]}")
             
-            # 定期保存模型
-            if (episode + 1) % self.config.save_frequency == 0:
-                self.save_models(f"pac_mcofl_episode_{episode + 1}")
-                print(f"💾 模型已保存到 pac_mcofl_episode_{episode + 1}")
             
             # 步骤28: num_eps ← num_eps + 1
             # (由for循环自动处理)
@@ -1399,17 +1272,6 @@ class PACMCoFLTrainer:
             'all_episode_lengths': eval_lengths
         }
     
-    def save_models(self, filepath_prefix: str):
-        """保存所有智能体模型."""
-        for service_id in self.service_ids:
-            self.agents[service_id].save_models(filepath_prefix)
-        print(f"模型已保存，前缀: {filepath_prefix}")
-    
-    def load_models(self, filepath_prefix: str):
-        """加载所有智能体模型."""
-        for service_id in self.service_ids:
-            self.agents[service_id].load_models(filepath_prefix)
-        print(f"模型已加载，前缀: {filepath_prefix}")
     
     def get_training_summary(self) -> Dict[str, Any]:
         """获取综合训练总结."""
@@ -1457,69 +1319,3 @@ class PACMCoFLTrainer:
             }
         
         return summary
-
-
-def test_pac_mcofl():
-    """测试PAC-MCoFL实现."""
-    print("测试PAC-MCoFL实现...")
-    
-    # 设置
-    from optimization_problem import OptimizationConstraints
-    from mdp_framework import MultiServiceFLEnvironment
-    from multi_service_fl import MultiServiceFLSystem, ServiceProviderConfig, ClientResourceConfig
-    
-    service_ids = [1, 2]
-    constraints = OptimizationConstraints(
-        max_energy=0.1, max_delay=5.0, max_clients=5, max_bandwidth=5e6
-    )
-    
-    config = PACConfig(
-        num_episodes=10,  # 测试用的小值
-        max_rounds_per_episode=8,
-        buffer_size=100,
-        batch_size=16,
-        actor_lr=0.001,
-        critic_lr=0.003,
-        update_frequency=2
-    )
-    
-    # 创建环境
-    environment = MultiServiceFLEnvironment(service_ids, constraints, max_rounds=config.max_rounds_per_episode)
-    
-    # 创建联邦学习系统(测试用简化版本)
-    service_configs = [
-        ServiceProviderConfig(service_id=1, name="Service1", client_ids=[1, 2], 
-                            model_architecture={"type": "simple_nn", "hidden_size": 64}),
-        ServiceProviderConfig(service_id=2, name="Service2", client_ids=[3, 4],
-                            model_architecture={"type": "simple_nn", "hidden_size": 64})
-    ]
-    client_configs = {i: ClientResourceConfig(i, 1e-28, 1000, 1e9, 0.1, 1e-3, 1000) 
-                     for i in range(1, 5)}
-    fl_system = MultiServiceFLSystem(service_configs, client_configs)
-    
-    # 创建PAC训练器
-    trainer = PACMCoFLTrainer(service_ids, environment, fl_system, config, constraints)
-    
-    print(f"创建了包含{len(trainer.agents)}个PAC智能体的训练器")
-    
-    # 测试单个回合
-    episode_rewards, episode_length, episode_info = trainer.train_episode()
-    print(f"测试回合: 奖励={episode_rewards}, 长度={episode_length}")
-    print(f"累积奖励J_r(π): {episode_info['cumulative_rewards']}")
-    
-    # 测试训练
-    training_results = trainer.train()
-    
-    # 测试评估
-    eval_results = trainer.evaluate(num_episodes=3)
-    print(f"评估结果: {eval_results['avg_cumulative_rewards']}")
-    
-    # 获取训练总结
-    summary = trainer.get_training_summary()
-    print(f"训练总结键: {list(summary.keys())}")
-    
-    print("\n✅ PAC-MCoFL测试完成!")
-
-
-if __name__ == "__main__":
-    test_pac_mcofl()

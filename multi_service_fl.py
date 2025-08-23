@@ -1207,31 +1207,6 @@ class MultiServiceFLSystem:
         
         return summary
     
-    def train_all_services(self, 
-                          num_rounds: int = 10,
-                          parallel: bool = False) -> Dict[int, Tuple[QuantizedFLModel, Dict[str, Any]]]:
-        """
-        训练所有服务。
-        
-        参数:
-            num_rounds: 训练轮数
-            parallel: 是否并行训练服务（未实现）
-            
-        返回:
-            将service_id映射到(模型, 指标)的字典
-        """
-        results = {}
-        
-        for service_id in self.service_configs.keys():
-            if service_id in self.service_trainers:
-                print(f"\n{'='*50}")
-                print(f"训练服务 {service_id}")
-                print(f"{'='*50}")
-                
-                model, metrics = self.train_service(service_id, num_rounds)
-                results[service_id] = (model, metrics)
-        
-        return results
     
     def get_system_summary(self) -> Dict[str, Any]:
         """获取综合系统摘要。"""
@@ -1246,51 +1221,3 @@ class MultiServiceFLSystem:
             summary['service_summaries'][service_id] = service_summary
         
         return summary
-
-
-def create_sample_system() -> MultiServiceFLSystem:
-    """创建用于测试的示例多服务联邦学习系统。"""
-    
-    # 定义服务配置
-    service_configs = [
-        ServiceProviderConfig(
-            service_id=1,
-            name="图像分类服务", 
-            client_ids=[1, 2, 3],
-            model_architecture={"type": "cnn", "num_classes": 10},
-            quantization_level=8,
-            users_per_round=2
-        ),
-        ServiceProviderConfig(
-            service_id=2,
-            name="文本分类服务",
-            client_ids=[4, 5, 6],
-            model_architecture={"type": "mlp", "num_classes": 5},
-            quantization_level=4,
-            users_per_round=2
-        )
-    ]
-    
-    # 定义客户端资源配置
-    client_configs = {
-        1: ClientResourceConfig(1, 1e-28, 1000, 1e9, 0.1, 1e-3, 1000),
-        2: ClientResourceConfig(2, 1.2e-28, 1200, 1.2e9, 0.12, 1.2e-3, 1200),
-        3: ClientResourceConfig(3, 0.8e-28, 800, 0.8e9, 0.08, 0.8e-3, 800),
-        4: ClientResourceConfig(4, 1.1e-28, 1100, 1.1e9, 0.11, 1.1e-3, 1100),
-        5: ClientResourceConfig(5, 0.9e-28, 900, 0.9e9, 0.09, 0.9e-3, 900),
-        6: ClientResourceConfig(6, 1.3e-28, 1300, 1.3e9, 0.13, 1.3e-3, 1300),
-    }
-    
-    return MultiServiceFLSystem(service_configs, client_configs)
-
-
-if __name__ == "__main__":
-    print("多服务联邦学习系统")
-    print("创建示例系统...")
-    
-    system = create_sample_system()
-    print("示例系统创建成功！")
-    
-    # 打印系统配置
-    summary = system.get_system_summary()
-    print(f"系统摘要: {json.dumps(summary, indent=2, ensure_ascii=False)}")
