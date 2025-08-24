@@ -24,13 +24,13 @@ try:
     from .mdp_framework import MultiServiceFLEnvironment, Action, Observation
     from .optimization_problem import OptimizationConstraints
     from .multi_service_fl import MultiServiceFLSystem
-    from .action_space_transform import ActionSpaceTransformer, ActionGranularity
+    from .action_space_transform import ActionSpaceTransformer, ActionGranularity, TernaryActionVector, TernaryAction   
 except ImportError:
     # 对于直接执行，使用绝对导入
     from mdp_framework import MultiServiceFLEnvironment, Action, Observation
     from optimization_problem import OptimizationConstraints
     from multi_service_fl import MultiServiceFLSystem
-    from action_space_transform import ActionSpaceTransformer, ActionGranularity
+    from action_space_transform import ActionSpaceTransformer, ActionGranularity, TernaryActionVector, TernaryAction
 
 
 @dataclass
@@ -118,8 +118,8 @@ class ActorNetwork(nn.Module):
                 nn.ReLU(),
                 nn.Linear(128, 64),                # 第三层：64个神经元
                 nn.ReLU(),
-                nn.Linear(64, action_dim),         # 输出层
-                nn.Tanh()  # 输出在[-1, 1]范围内
+                # 输出每个动作维度的三元分类logits，共 action_dim * 3 个
+                nn.Linear(64, action_dim * 3)
             )
         else:
             # 兼容其他配置的通用架构
@@ -131,8 +131,8 @@ class ActorNetwork(nn.Module):
                 layers.append(nn.ReLU())
                 input_dim = hidden_dim
             
-            layers.append(nn.Linear(hidden_dim, action_dim))
-            layers.append(nn.Tanh())  # 输出在[-1, 1]范围内
+            # 输出每个动作维度的三元分类logits
+            layers.append(nn.Linear(hidden_dim, action_dim * 3))
             
             self.network = nn.Sequential(*layers)
         
@@ -148,26 +148,16 @@ class ActorNetwork(nn.Module):
     
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
         """
-        前向传播生成动作.
+        前向传播生成每个动作维度的三元分类logits.
         
         参数:
             observation: 输入观察
             
         返回:
-            生成的动作
+            logits 张量，形状为 [batch, action_dim * 3]
         """
-        action = self.network(observation)
-        
-        # 如果提供了动作边界，则缩放到动作边界
-        if self.action_bounds is not None:
-            min_bounds, max_bounds = self.action_bounds
-            min_bounds = torch.tensor(min_bounds, dtype=torch.float32, device=action.device)
-            max_bounds = torch.tensor(max_bounds, dtype=torch.float32, device=action.device)
-            
-            # 从[-1, 1]缩放到[min_bounds, max_bounds]
-            action = min_bounds + 0.5 * (action + 1) * (max_bounds - min_bounds)
-        
-        return action
+        logits = self.network(observation)
+        return logits
 
 
 class CriticNetwork(nn.Module):
@@ -362,7 +352,7 @@ class PACAgent:
                      constraints.max_bandwidth, q_max_eff], dtype=np.float32)
         )
         
-        # 初始化网络
+        # 初始化网络（现在actor输出三元分类logits）
         self.actor = ActorNetwork(
             observation_dim, action_dim, 
             config.actor_hidden_dim, config.num_layers, self.action_bounds
@@ -396,25 +386,45 @@ class PACAgent:
     
     def select_action(self, observation: np.ndarray, training: bool = True) -> np.ndarray:
         """
-        使用当前策略选择动作.
+        使用三元增量策略选择动作：
+        - actor 输出每维三元分类 logits（对应 {-1,0,1}）
+        - 采样得到三元动作向量 a'(m)∈{-1,0,1}
+        - 将 a' 应用于上一步动作状态，得到新物理动作
         
         实现从π_r(a_{r,t} | o_{r,t})采样.
         """
         observation_tensor = torch.FloatTensor(observation).unsqueeze(0)
-
         with torch.no_grad():
-            action = self.actor.forward(observation_tensor)
-            if training:
-                std_now = max(
-                    self.config.exploration_std_end,
-                    self.config.exploration_std_start -
-                    (self.training_step / max(1, self.config.exploration_decay_steps)) *
-                    (self.config.exploration_std_start - self.config.exploration_std_end)
-                )
-                noise = torch.randn_like(action) * std_now
-                action = action + noise
-        
-        return action.detach().squeeze(0).cpu().numpy()
+            logits = self.actor.forward(observation_tensor)  # [1, action_dim*3]
+        logits = logits.view(1, self.action_dim, 3)  # [1, 4, 3]
+        # 温度/探索：在训练时可加入gumbel或softmax温度，这里先用softmax采样
+        if training:
+            probs = F.softmax(logits, dim=-1)  # [1, 4, 3]
+            # 多项分布采样每一维
+            inc_idx = torch.multinomial(probs.squeeze(0), num_samples=1).squeeze(-1)  # [4]
+        else:
+            inc_idx = torch.argmax(logits.squeeze(0), dim=-1)  # [4]
+        # 将索引 {0,1,2} 映射为 {-1,0,1}
+        inc_map = torch.tensor([-1, 0, 1], dtype=torch.int64, device=inc_idx.device)
+        increments = inc_map[inc_idx].cpu().numpy()  # shape [4]
+        # 取上一动作状态（若无，则使用约束中点）
+        if not hasattr(self, 'last_action_state') or self.last_action_state is None:
+            self.last_action_state = np.array([
+                (self.constraints.min_clients + self.constraints.max_clients) // 2,
+                (self.constraints.min_frequency + self.constraints.max_frequency) / 2.0,
+                (self.constraints.min_bandwidth + self.constraints.max_bandwidth) / 2.0,
+                (self.constraints.min_quantization + self.constraints.max_quantization) // 2
+            ], dtype=np.float32)
+        # 构造三元动作并应用到当前状态
+        tav = TernaryActionVector(
+            n_clients_action=TernaryAction(int(increments[0])),
+            frequency_action=TernaryAction(int(increments[1])),
+            bandwidth_action=TernaryAction(int(increments[2])),
+            quantization_action=TernaryAction(int(increments[3]))
+        )
+        new_action = self.action_transformer.apply_ternary_action(self.last_action_state, tav)
+        self.last_action_state = new_action.copy()
+        return new_action.astype(np.float32)
     
     # (已删除重复的 compute_baseline_value 旧版本，保留后方改进版本)
     
@@ -451,6 +461,7 @@ class PACAgent:
         num_samples = 50
         best_q_values = torch.full((batch_size,), float('-inf'))
         best_joint_actions = torch.zeros(batch_size, joint_action_dim)
+
 
         for _ in range(num_samples):
             joint_action_batch = []
@@ -493,18 +504,18 @@ class PACAgent:
         # 从策略网络生成多个动作样本
         num_action_samples = 10
         action_samples = []
-        
+        base_actions = own_action
+
         for _ in range(num_action_samples):
-            # 重新参数化技巧采样动作
-            sampled_actions = self.actor(observation)
+            sampled_logits = self.actor(observation)
+            sampled_actions = self.logits_to_physical_actions(sampled_logits, base_actions, greedy=False)
             action_samples.append(sampled_actions)
-        
         action_samples = torch.stack(action_samples, dim=1)  # [batch, num_samples, action_dim]
         
         # 为每个动作样本生成联合动作
         other_action_dim = (self.num_agents - 1) * self.action_dim
         joint_actions = torch.randn(batch_size, num_action_samples, other_action_dim)
-        
+
         # 计算每个动作样本的Q值
         obs_expanded = observation.unsqueeze(1).repeat(1, num_action_samples, 1)
         
@@ -538,11 +549,17 @@ class PACAgent:
         
         # 计算目标Q值，实现方程(24)的max操作符
         with torch.no_grad():
-            # 从目标策略网络获取下一个动作 a_{r,t+1}
-            next_own_actions = self.actor_target(next_observations)
+            # 从目标策略网络获取下一个动作的logits
+            next_own_actions_logits = self.actor_target(next_observations)
+
+            # 使用上一时刻动作作为基准，将logits映射为物理4维动作（贪心）
+            base_actions = own_actions
+            next_own_actions = self.logits_to_physical_actions(
+                next_own_actions_logits, base_actions, greedy=True
+            )
             
-            # 获取当前动作状态（用于三元变换）
-            current_action_states = own_actions
+            # 以映射后的物理动作作为当前动作状态，计算虚拟联合策略
+            current_action_states = next_own_actions
             
             # 计算虚拟联合策略 π_{-r}^† (方程23)，使用三元动作空间
             # 这是方程(24)中max操作的核心，现在使用离散动作空间
@@ -599,15 +616,18 @@ class PACAgent:
         observations, own_actions, joint_actions, rewards, next_observations, dones = batch
         
         # 计算当前策略的动作
-        current_actions = self.actor(observations)
+        current_logits = self.actor(observations)
+        base_actions = own_actions
+        current_actions, inc_idx = self.logits_to_physical_actions(
+            current_logits, base_actions, greedy=False, return_indices=True
+        )
         
         # 为当前动作生成最优的联合动作（实现方程23）
         # 使用三元动作空间而不是随机采样
         current_action_states = current_actions
         
-        # 计算虚拟联合策略，使用三元动作空间
         best_joint_actions = self.compute_virtual_joint_policy(
-            observations, current_actions, current_action_states
+            observations, current_actions, current_actions
         )
         
         # 计算Q值
@@ -619,19 +639,12 @@ class PACAgent:
         
         # 计算优势函数：A = Q - baseline
         advantages = q_values - baseline
-        
-        # 计算策略概率的对数
-        # 假设连续动作使用正态分布策略
-        action_means = current_actions
-        action_stds = torch.ones_like(action_means) * 0.1  # 固定标准差
-        
-        # 计算真实执行动作的对数概率
-        log_probs = -0.5 * ((own_actions - action_means) / action_stds) ** 2 - \
-                   torch.log(action_stds) - 0.5 * torch.log(2 * torch.tensor(np.pi))
-        log_probs = torch.sum(log_probs, dim=1, keepdim=True)
-        
-        # 策略梯度损失：∇J_r(π) = E[∇log π_r * (Q - baseline)]
-        # 注意：PyTorch中使用负号因为我们最小化损失而不是最大化奖励
+    
+        logits3 = current_logits.view(-1, self.action_dim, 3)
+        log_probs_per_dim = F.log_softmax(logits3, dim=-1).gather(-1, inc_idx.unsqueeze(-1)).squeeze(-1)
+        log_probs = log_probs_per_dim.sum(dim=1, keepdim=True)
+
+        # 策略梯度损失
         actor_loss = -(log_probs * advantages.detach()).mean()
         
         # 更新演员网络 (方程27: φ_r = φ_r + ζ ∇_{φ_r} J_r(π))
@@ -718,6 +731,42 @@ class PACAgent:
             'buffer_size': len(self.replay_buffer)
         }
 
+    def logits_to_physical_actions(self, logits: torch.Tensor, base_actions: torch.Tensor, greedy: bool = False, return_indices: bool = False):
+        """将每维三元分类logits映射为长度为action_dim的物理动作.
+
+        Args:
+            logits: [batch, action_dim*3]，每维{-1,0,1}的logits
+            base_actions: [batch, action_dim]，作为应用三元增量的基准动作
+            greedy: True使用argmax，False按softmax采样
+            return_indices: 是否返回每维增量索引{0,1,2}
+
+        Returns:
+            actions: [batch, action_dim] 物理动作
+            inc_idx(optional): [batch, action_dim] 采样/贪心得到的增量索引
+        """
+        bsz = logits.shape[0]
+        logits3 = logits.view(bsz, self.action_dim, 3)
+        if greedy:
+            inc_idx = torch.argmax(logits3, dim=-1)  # [bsz, action_dim]
+        else:
+            probs = F.softmax(logits3, dim=-1)
+            inc_idx = torch.multinomial(probs.view(-1, 3), num_samples=1).view(bsz, self.action_dim)
+        inc_map = torch.tensor([-1, 0, 1], dtype=torch.int64, device=inc_idx.device)
+        inc = inc_map[inc_idx].cpu().numpy()  # [bsz, action_dim]
+        base_np = base_actions.detach().cpu().numpy()
+        out = np.zeros_like(base_np, dtype=np.float32)
+        for i in range(bsz):
+            tav = TernaryActionVector(
+                n_clients_action=TernaryAction(int(inc[i, 0])),
+                frequency_action=TernaryAction(int(inc[i, 1])),
+                bandwidth_action=TernaryAction(int(inc[i, 2])),
+                quantization_action=TernaryAction(int(inc[i, 3])),
+            )
+            out[i] = self.action_transformer.apply_ternary_action(base_np[i], tav).astype(np.float32)
+        out_t = torch.from_numpy(out)
+        if return_indices:
+            return out_t, inc_idx
+        return out_t
 
 class PACMCoFLTrainer:
     """
@@ -763,6 +812,7 @@ class PACMCoFLTrainer:
         
         num_agents = len(service_ids)
         
+        """为每个服务单独初始化PAC智能体"""
         self.agents = {}
         for service_id in service_ids:
             self.agents[service_id] = PACAgent(
@@ -832,10 +882,11 @@ class PACMCoFLTrainer:
         while step < self.config.max_rounds_per_episode:
             current_obs = {sid: observations[sid] for sid in self.service_ids}
 
-            # 策略采样
+            """逐服务选择动作"""
             actions = {sid: self.agents[sid].select_action(current_obs[sid], training=True)
                        for sid in self.service_ids}
 
+            """初始化奖励和观测"""
             rewards = {}
             next_observations = {}
             dones = {sid: False for sid in self.service_ids}
@@ -1012,8 +1063,29 @@ class PACMCoFLTrainer:
                 }
 
             # 第二阶段：统一根据真实观测与通信量计算奖励，并构造下一观测
+            # 在构造下一观测前，将本步所有服务的带宽动作写回为公开带宽向量 B_t
+            # 这样可确保 o_{r,t+1} 中的 B_t 反映所有智能体的最新带宽决策
+            bw_map = {}
+            try:
+                for sid_tmp in self.service_ids:
+                    act_arr_tmp = actions.get(sid_tmp, None)
+                    if act_arr_tmp is not None and len(act_arr_tmp) > 2:
+                        bw_map[sid_tmp] = float(act_arr_tmp[2])
+                    else:
+                        bw_map[sid_tmp] = float(self.constraints.min_bandwidth)
+            except Exception:
+                # 回退：最小带宽
+                for sid_tmp in self.service_ids:
+                    bw_map[sid_tmp] = float(self.constraints.min_bandwidth)
+
             for sid in self.service_ids:
                 obs_obj = real_obs_map.get(sid, self.environment.observations[sid])
+                # 写入公开带宽分配 B_t（每个服务的服务级带宽，而非按客户端等分后的带宽）
+                try:
+                    obs_obj.bandwidth_allocations = {k: float(v) for k, v in bw_map.items()}
+                except Exception:
+                    # 回退：保持原值
+                    pass
                 # 使用完整参数（含通信量）计算奖励；若reward_functions缺失则回退为acc
                 if hasattr(self.environment, 'reward_functions') and sid in self.environment.reward_functions:
                     reward_val = self.environment.reward_functions[sid].calculate(
@@ -1075,10 +1147,6 @@ class PACMCoFLTrainer:
             episode_trajectory.append(rewards)
             observations = next_observations
             step += 1
-
-            # 每步都尝试训练（只要缓冲区够大）
-            for service_id in self.service_ids:
-                self.agents[service_id].train_step()
 
             if all(dones.values()):
                 break

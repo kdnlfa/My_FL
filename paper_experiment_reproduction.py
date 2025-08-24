@@ -589,31 +589,6 @@ class PaperExperimentRunner:
             }
         )
 
-        # pac_config = PACConfig(
-        #     num_episodes=5,  # 调试联动：先跑少量episode验证
-        #     max_rounds_per_episode=10,  # 减少每episode轮数以加速
-        #     buffer_size=10000,
-        #     batch_size=64,
-        #     actor_hidden_dim=64,    # 论文：策略网络64-128-64
-        #     critic_hidden_dim=64,   # 论文：Q网络64-128
-        #     num_layers=3,
-        #     actor_lr=self.config.zeta,   # 论文：ζ=0.001
-        #     critic_lr=self.config.alpha, # 论文：α=0.001
-        #     gamma=0.95,
-        #     joint_action_samples=100,
-        #     update_frequency=4,
-        #     # 三份训练方案（按服务）
-        #     # 方案A（服务1，CIFAR-10）: 准确率优先 + 稳定性，提升训练量与资源下限，评估每步
-        #     step_eval_frequency=1,
-        #     service_eval_frequency={1: 1, 2: 1, 3: 2},
-        #     service_epochs_per_step={1: 5, 2: 3, 3: 1},
-        #     service_action_floors={
-        #         1: { 'min_clients': 2, 'min_frequency': 1.5e9, 'min_bandwidth': 15e6, 'min_quantization': 8 },
-        #         2: { 'min_clients': 2, 'min_frequency': 1.2e9, 'min_bandwidth': 10e6, 'min_quantization': 6 },
-        #         3: { 'min_clients': 1, 'min_frequency': 1.0e9, 'min_bandwidth': 5e6,  'min_quantization': 4 }
-        #     }
-        # )
-
         
         # 创建PAC训练器
         self.pac_trainer = PACMCoFLTrainer(

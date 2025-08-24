@@ -529,8 +529,17 @@ class MultiServiceFLEnvironment:
         if not (self.constraints.min_frequency <= action.cpu_frequency <= self.constraints.max_frequency):
             return False
         
-        # C4: 带宽约束 B^min ≤ Σ_r B_{r,t} ≤ B^max（此处仅检查单个动作在边界内）
-        # 这里暂时跳过全局带宽检查，因为需要所有服务的信息
+        # C4: 带宽约束 B^min ≤ Σ_r B_{r,t} ≤ B^max（全局检查）
+        try:
+            if self.actions_history:
+                last_actions = self.actions_history[-1]
+                total_bw = sum(float(a.bandwidth) for a in last_actions.values())
+            else:
+                total_bw = sum(float(bw) for bw in (current_obs.bandwidth_allocations or {}).values())
+            if total_bw < self.constraints.min_bandwidth or total_bw > self.constraints.max_bandwidth:
+                return False
+        except Exception:
+            pass
         
         # C5: 量化级别范围 q_{r,t}
         if not (self.constraints.min_quantization <= action.quantization_level <= self.constraints.max_quantization):
@@ -606,6 +615,40 @@ class MultiServiceFLEnvironment:
         
         # 将动作存储在历史记录中
         self.actions_history.append(action_objects.copy())
+        
+        # 全局带宽约束 C4: B_min ≤ Σ_r B_{r,t} ≤ B_max
+        try:
+            total_bw = sum(float(a.bandwidth) for a in action_objects.values())
+            min_bw_total = float(self.constraints.min_bandwidth)
+            max_bw_total = float(self.constraints.max_bandwidth)
+            num_services = max(1, len(self.service_ids))
+            if total_bw > max_bw_total:
+                scale = max_bw_total / max(total_bw, 1e-9)
+                for a in action_objects.values():
+                    a.bandwidth = float(a.bandwidth) * scale
+            elif total_bw < min_bw_total:
+                if total_bw <= 0.0:
+                    # 平均分配到各服务
+                    even_bw = min_bw_total / num_services
+                    for a in action_objects.values():
+                        a.bandwidth = float(even_bw)
+                else:
+                    scale = min_bw_total / max(total_bw, 1e-9)
+                    for a in action_objects.values():
+                        a.bandwidth = float(a.bandwidth) * scale
+        except Exception:
+            pass
+        
+        # 同步公开带宽向量 B_t 到当前观察，确保状态闭环（用于纯环境仿真路径）
+        try:
+            bw_map = {sid: float(a.bandwidth) for sid, a in action_objects.items()}
+            for sid in self.service_ids:
+                try:
+                    self.observations[sid].bandwidth_allocations = bw_map.copy()
+                except Exception:
+                    pass
+        except Exception:
+            pass
         
         # 模拟联邦学习轮次
         new_observations, communication_volumes = self._simulate_fl_round(action_objects)
@@ -783,6 +826,15 @@ class MultiServiceFLEnvironment:
         if not (self.constraints.min_quantization <= action.quantization_level <= self.constraints.max_quantization):
             return False
         
+        # 全局带宽总量约束（再次显式检查）
+        try:
+            if self.actions_history:
+                last_actions = self.actions_history[-1]
+                total_bw = sum(float(a.bandwidth) for a in last_actions.values())
+                if total_bw < self.constraints.min_bandwidth or total_bw > self.constraints.max_bandwidth:
+                    return False
+        except Exception:
+            pass
         return True
     
     
